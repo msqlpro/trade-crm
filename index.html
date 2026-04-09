@@ -301,7 +301,7 @@ async function renderCustomers(){
       <input class="search-input" id="custSearch" placeholder="Search customers…" value="${searchQ}" oninput="searchQ=this.value;renderCustomerTable()"/>
     </div>
     <button class="btn btn-primary btn-sm" onclick="showAddCustomer()">+ Add Customer</button>`;
-  const{data}=await sb.from('customers').select('id,kf_code,company_name,status,all_time_spend,country_name,at_risk_flag,last_order_date,customer_tags(tags(id,name,colour))').order('company_name');
+  const{data}=await sb.from('customers').select('id,kf_code,company_name,status,all_time_spend,country_name,at_risk_flag,last_order_date,customer_tags(tags(id,name,colour))').order('company_name').limit(10000);
   customerListCache=data||[];
   const sc={all:customerListCache.length};customerListCache.forEach(c=>{sc[c.status]=(sc[c.status]||0)+1;});
   document.getElementById('pageWrap').innerHTML=`
