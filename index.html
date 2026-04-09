@@ -321,6 +321,16 @@ async function renderCustomers(){
 }
 
 function renderCustomerTable(){
+  // Update pill visual states
+  document.querySelectorAll('.status-pill').forEach(p=>{p.classList.toggle('on',p.dataset.status===filterStatus);});
+  document.querySelectorAll('.tag-pill').forEach(p=>{
+    const on=p.dataset.tagid===filterTag;
+    p.classList.toggle('on',on);
+    const t=allTags.find(t=>t.id===p.dataset.tagid);
+    if(t){p.style.background=on?t.colour:'transparent';p.style.color=on?'#fff':t.colour;p.style.borderColor=t.colour;}
+  });
+  const clearPill=document.querySelector('.clear-pill');
+  if(clearPill)clearPill.style.display=filterTag?'':'none';
   let rows=customerListCache;
   if(filterStatus!=='all')rows=rows.filter(c=>c.status===filterStatus);
   if(filterTag)rows=rows.filter(c=>c.customer_tags?.some(ct=>ct.tags?.id===filterTag));
