@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Brainbox CRM</title><!-- v20260410151222 -->
+<title>Brainbox CRM</title><!-- v20260410153201 -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet"/>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -311,7 +311,7 @@ const STAGE_COLOURS = {Prospect:'#1d4ed8',Contacted:'#7c3aed',Sampling:'#0f766e'
 let S = {
   user:null, view:'dashboard', custId:null,
   custPage:0, custSearch:'', custStatus:'',
-  taskFilter:'open', etypes:{}, tags:[],
+  taskFilter:'open', etypes:{}, tags:[], custEngagement:'',
   mlKey:'', importData:null
 };
 
@@ -463,60 +463,65 @@ async function renderDashboard(){
 
 // ═══ CUSTOMERS LIST ═══
 async function renderCustomers(){
-  const sortCol=S.custSort||'company_name';
-  const sortAsc=S.custSortAsc!==false;
+  const sortCol = S.custSort || 'company_name';
+  const sortAsc = S.custSortAsc !== false;
 
-  // Build query step by step
-  let q=sb.from('customers').select('id,kf_code,company_name,status,all_time_spend,country_name,last_order_date,at_risk_flag,store_type');
-
-  // Exclude internal accounts (asterisk-prefixed in KashFlow)
-
-  if(S.custSearch) q=q.ilike('company_name','%'+S.custSearch+'%');
-
-  if(S.custStatus==='dormant'){
-    const cutoff=new Date(Date.now()-365*864e5).toISOString().split('T')[0];
-    q=q.or('status.eq.dormant,last_order_date.lt.'+cutoff);
+  // Main data query
+  let q = sb.from('customers').select('id,kf_code,company_name,status,all_time_spend,country_name,last_order_date,last_contacted_at,store_type,source,invoice_count');
+  if(S.custSearch) q = q.ilike('company_name', '%'+S.custSearch+'%');
+  if(S.custStatus === 'dormant'){
+    const cutoff = new Date(Date.now()-365*864e5).toISOString().split('T')[0];
+    q = q.or('status.eq.dormant,last_order_date.lt.'+cutoff);
   } else if(S.custStatus){
-    q=q.eq('status',S.custStatus);
+    q = q.eq('status', S.custStatus);
   }
+  // Engagement filter - customers NOT contacted in X days
+  if(S.custEngagement){
+    const days = parseInt(S.custEngagement);
+    const cutoff = new Date(Date.now()-days*864e5).toISOString();
+    q = q.or('last_contacted_at.is.null,last_contacted_at.lt.'+cutoff);
+  }
+  q = q.order(sortCol, {ascending: sortAsc}).range(S.custPage*PG, (S.custPage+1)*PG-1);
 
-  q=q.order(sortCol,{ascending:sortAsc}).range(S.custPage*PG,(S.custPage+1)*PG-1);
-
-  const{data,error}=await q;
-
+  const {data, error} = await q;
   if(error){
-    setPage('<div style="padding:32px;color:var(--red)"><strong>Error loading customers:</strong><br>'+error.message+'<br><small>Code: '+error.code+'</small></div>');
+    setPage('<div style="padding:32px;color:var(--red)"><strong>Error:</strong> '+error.message+'</div>');
     return;
   }
 
-  // Get count separately to avoid any count+range conflicts
-  let countQ=sb.from('customers').select('*',{count:'exact',head:true});
-  if(S.custSearch) countQ=countQ.ilike('company_name','%'+S.custSearch+'%');
-  if(S.custStatus==='dormant'){
-    const cutoff=new Date(Date.now()-365*864e5).toISOString().split('T')[0];
-    countQ=countQ.or('status.eq.dormant,last_order_date.lt.'+cutoff);
-  } else if(S.custStatus){
-    countQ=countQ.eq('status',S.custStatus);
-  }
-  const{count}=await countQ;
+  // Count query
+  let cq = sb.from('customers').select('*',{count:'exact',head:true});
+  if(S.custSearch) cq = cq.ilike('company_name','%'+S.custSearch+'%');
+  if(S.custStatus==='dormant'){const cut=new Date(Date.now()-365*864e5).toISOString().split('T')[0];cq=cq.or('status.eq.dormant,last_order_date.lt.'+cut);}
+  else if(S.custStatus) cq = cq.eq('status',S.custStatus);
+  if(S.custEngagement){const d=parseInt(S.custEngagement);const cut=new Date(Date.now()-d*864e5).toISOString();cq=cq.or('last_contacted_at.is.null,last_contacted_at.lt.'+cut);}
+  const {count} = await cq;
 
-  const rows=data||[];
-  const pages=Math.ceil((count||0)/PG);
+  const rows = data || [];
+  const pages = Math.ceil((count||0)/PG);
 
-  const th=(col,label,align)=>{
-    const active=sortCol===col,asc=active&&sortAsc;
-    const arrow=active?(asc?' ↑':' ↓'):' <span style="opacity:.25">↕</span>';
-    return '<th style="cursor:pointer;user-select:none;white-space:nowrap;'+(align?'text-align:'+align+';':'')+'" onclick="custSort(\'' +col+ '\')">' +label+arrow+ '</th>';
+  const th = (col, label, align) => {
+    const active = sortCol===col, asc = active&&sortAsc;
+    const arrow = active ? (asc ? ' ↑' : ' ↓') : ' <span style="opacity:.25">↕</span>';
+    return '<th style="cursor:pointer;user-select:none;white-space:nowrap;'+(align?'text-align:'+align+';':'')+'" onclick="custSort(\''+col+'\')">'+label+arrow+'</th>';
   };
 
   setPage(`
-    <div class="toolbar">
+    <div class="toolbar" style="flex-wrap:wrap;gap:8px">
       <div class="search-wrap">
         <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
         <input class="search-input" type="search" placeholder="Search customers…" value="${x(S.custSearch)}" oninput="custSearch(this.value)"/>
       </div>
       <div class="pills">
         ${['','active','prospect','dormant'].map(s=>`<button class="pill ${S.custStatus===s?'on':''}" onclick="custFilter('${s}')">${s?s.charAt(0).toUpperCase()+s.slice(1):'All'}</button>`).join('')}
+      </div>
+    </div>
+    <div class="toolbar" style="margin-top:0;margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span style="font-size:12px;color:var(--text2);font-weight:500">Not contacted in:</span>
+        <div class="pills">
+          ${[['','Any time'],['30','30 days'],['60','60 days'],['90','90 days'],['180','6 months'],['365','1 year']].map(([v,l])=>`<button class="pill ${S.custEngagement===v?'on':''}" onclick="custEngagement('${v}')">${l}</button>`).join('')}
+        </div>
       </div>
       <div class="spacer"></div>
       <span style="font-size:12px;color:var(--text3)">${(count||0).toLocaleString()} customers</span>
@@ -532,17 +537,21 @@ async function renderCustomers(){
         ${th('store_type','Store Type')}
         ${th('country_name','Country')}
         ${th('all_time_spend','Spend','right')}
-        ${th('last_order_date','Last Order Date')}
+        ${th('invoice_count','Invoices','right')}
+        ${th('last_order_date','Last Order')}
+        ${th('last_contacted_at','Last Contacted')}
       </tr></thead>
-      <tbody>${!rows.length?`<tr><td colspan="7" class="no-results">${data?'No customers found':'Loading failed — check console'}</td></tr>`:rows.map(c=>`
+      <tbody>${!rows.length ? `<tr><td colspan="9" class="no-results">No customers found</td></tr>` : rows.map(c=>`
         <tr onclick="go('customer-detail',{id:'${c.id}'})">
-          <td><span>${x(c.company_name)}</span>${c.at_risk_flag?` <span class="badge badge-at-risk" style="font-size:9px;margin-left:4px">AT RISK</span>`:''}</td>
+          <td><span>${x(c.company_name)}</span></td>
           <td class="td-mono">${x(c.kf_code||'')}</td>
           <td>${sBadge(c.status)}</td>
           <td style="color:var(--text2);font-size:12px">${x(c.store_type||'')}</td>
           <td style="color:var(--text2)">${x(c.country_name||'')}</td>
           <td style="text-align:right" class="td-mono">${c.all_time_spend?'£'+N2(c.all_time_spend):'—'}</td>
+          <td style="text-align:right;color:var(--text2)">${c.invoice_count||'—'}</td>
           <td style="color:var(--text2)">${c.last_order_date?fd(c.last_order_date):'—'}</td>
+          <td style="color:${!c.last_contacted_at?'var(--text3)':daysSince(c.last_contacted_at)>90?'var(--red)':'var(--text2)'}">${c.last_contacted_at?ago(c.last_contacted_at):'Never'}</td>
         </tr>`).join('')}</tbody></table>
       ${pages>1?`<div class="pagination">
         <button class="btn btn-sm" onclick="custPg(-1)" ${S.custPage===0?'disabled':''}>← Prev</button>
@@ -550,12 +559,17 @@ async function renderCustomers(){
         <button class="btn btn-sm" onclick="custPg(1)" ${S.custPage>=pages-1?'disabled':''}>Next →</button>
       </div>`:''}
     </div>
+    <div style="font-size:11px;color:var(--text3);margin-top:8px;padding-left:2px">
+      💡 Tip: "Last Contacted" updates when you log activity on a customer. Red = no contact in 90+ days.
+    </div>
   `);
 }
 let _cst;
 function custSearch(v){clearTimeout(_cst);_cst=setTimeout(()=>{S.custSearch=v;S.custPage=0;renderCustomers();},300);}
 function custFilter(s){S.custStatus=s;S.custPage=0;renderCustomers();}
+function custEngagement(v){S.custEngagement=v;S.custPage=0;renderCustomers();}
 function custPg(d){S.custPage+=d;renderCustomers();}
+function daysSince(d){if(!d)return 9999;return Math.floor((Date.now()-new Date(d))/864e5);}
 function custSort(col){
   if(S.custSort===col)S.custSortAsc=!S.custSortAsc;
   else{S.custSort=col;S.custSortAsc=col!=='all_time_spend';}
@@ -569,8 +583,8 @@ async function custCSV(){
   q=q.order(S.custSort||'company_name',{ascending:S.custSortAsc!==false}).limit(10000);
   const{data}=await q;
   if(!data?.length)return;
-  const cols=['kf_code','company_name','status','store_type','source','country_name','address_1','address_2','postcode','phone','mobile','all_time_spend','invoice_count','last_order_date','first_invoiced','payment_terms','discount','notes'];
-  const hdrs=['KF Code','Company','Status','Store Type','Source','Country','Address 1','Address 2','Postcode','Phone','Mobile','All-time Spend','Invoices','Last Order Date','First Invoiced','Payment Terms','Discount','Notes'];
+  const cols=['kf_code','company_name','status','store_type','source','country_name','address_1','address_2','postcode','phone','mobile','all_time_spend','invoice_count','last_order_date','last_contacted_at','first_invoiced','payment_terms','discount','notes'];
+  const hdrs=['KF Code','Company','Status','Store Type','Source','Country','Address 1','Address 2','Postcode','Phone','Mobile','All-time Spend','Invoices','Last Order Date','Last Contacted','First Invoiced','Payment Terms','Discount','Notes'];
   const esc=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';
   const rows=[hdrs.join(','),...data.map(r=>cols.map(c=>esc(r[c])).join(','))];
   const blob=new Blob([rows.join('\n')],{type:'text/csv'});
