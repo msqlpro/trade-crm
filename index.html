@@ -466,7 +466,6 @@ async function renderCustomers(){
   const sortCol=S.custSort||'company_name';
   const sortAsc=S.custSortAsc!==false;
   let q=sb.from('customers').select('id,kf_code,company_name,status,all_time_spend,country_name,last_order_date,at_risk_flag,store_type',{count:'exact'});
-  q=q.not('company_name','like','*%'); // exclude asterisk-prefixed internal accounts
   if(S.custSearch)q=q.ilike('company_name',`%${S.custSearch}%`);
   if(S.custStatus==='dormant'){
     const cutoff=new Date(Date.now()-365*864e5).toISOString().split('T')[0];
@@ -475,7 +474,9 @@ async function renderCustomers(){
     q=q.eq('status',S.custStatus);
   }
   q=q.order(sortCol,{ascending:sortAsc,nullsFirst:false}).range(S.custPage*PG,(S.custPage+1)*PG-1);
-  const{data,count}=await q;
+  const{data:rawData,count,error}=await q;
+  if(error){console.error('Customers query error:',error);setPage('<div class="no-results">Error loading customers: '+error.message+'</div>');return;}
+  const data=(rawData||[]).filter(c=>!c.company_name?.startsWith('*'));
   const pages=Math.ceil((count||0)/PG);
   // Sort header helper
   const th=(col,label,align)=>{
