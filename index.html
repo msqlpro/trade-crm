@@ -469,6 +469,9 @@ async function renderCustomers(){
   // Build query step by step
   let q=sb.from('customers').select('id,kf_code,company_name,status,all_time_spend,country_name,last_order_date,at_risk_flag,store_type');
 
+  // Exclude asterisk-prefixed internal accounts server-side
+  q=q.filter('company_name','not.ilike','*%');
+
   if(S.custSearch) q=q.ilike('company_name','%'+S.custSearch+'%');
 
   if(S.custStatus==='dormant'){
@@ -489,6 +492,7 @@ async function renderCustomers(){
 
   // Get count separately to avoid any count+range conflicts
   let countQ=sb.from('customers').select('*',{count:'exact',head:true});
+  countQ=countQ.filter('company_name','not.ilike','*%');
   if(S.custSearch) countQ=countQ.ilike('company_name','%'+S.custSearch+'%');
   if(S.custStatus==='dormant'){
     const cutoff=new Date(Date.now()-365*864e5).toISOString().split('T')[0];
