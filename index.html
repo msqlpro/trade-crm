@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Brainbox CRM</title><!-- v20260410153509 -->
+<title>Brainbox CRM</title><!-- v20260410154107 -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet"/>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -555,8 +555,8 @@ async function renderCustomers(){
           <td>${sBadge(c.status)}</td>
           <td style="color:var(--text2);font-size:12px">${x(c.store_type||'')}</td>
           <td style="color:var(--text2)">${x(c.country_name||'')}</td>
-          <td style="text-align:right" class="td-mono">${c.all_time_spend?'£'+N2(c.all_time_spend):'—'}</td>
-          <td style="text-align:right;color:var(--text2)">${c.invoice_count||'—'}</td>
+          <td style="text-align:right;color:${c.all_time_spend<0?'var(--red)':'inherit'}" class="td-mono">${c.all_time_spend!=null?'£'+N2(c.all_time_spend):'—'}</td>
+          <td style="text-align:right;color:var(--text2)">${c.invoice_count!=null?c.invoice_count:'—'}</td>
           <td style="color:var(--text2)">${c.last_order_date?fd(c.last_order_date):'—'}</td>
           <td style="color:${!c.last_contacted_at?'var(--text3)':daysSince(c.last_contacted_at)>90?'var(--red)':'var(--text2)'}">${c.last_contacted_at?ago(c.last_contacted_at):'Never'}</td>
         </tr>`).join('')}</tbody></table>
