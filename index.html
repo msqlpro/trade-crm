@@ -413,12 +413,12 @@ async function renderDashboard(){
   const ninety=new Date(Date.now()-90*864e5).toISOString();
   const[r1,r2,r3,r4,r5,r6,r7]=await Promise.all([
     sb.from('customers').select('*',{count:'exact',head:true}),
-    sb.from('customers').select('*',{count:'exact',head:true}).eq('status','Active'),
-    sb.from('customers').select('*',{count:'exact',head:true}).eq('status','Prospect'),
+    sb.from('customers').select('*',{count:'exact',head:true}).eq('status','active'),
+    sb.from('customers').select('*',{count:'exact',head:true}).eq('status','prospect'),
     sb.from('customers').select('*',{count:'exact',head:true}).eq('at_risk_flag',true),
     sb.from('tasks').select('*,customers(id,company_name)').in('status',['open','in_progress']).lte('due_date',today).order('due_date').limit(12),
     sb.from('events').select('*,customers(id,company_name)').order('occurred_at',{ascending:false}).limit(15),
-    sb.from('customers').select('id,company_name,last_order_date,status').eq('status','Active').lt('last_order_date',ninety).order('last_order_date').limit(8),
+    sb.from('customers').select('id,company_name,last_order_date,status').eq('status','active').lt('last_order_date',ninety).order('last_order_date').limit(8),
   ]);
   setPage(`
     <div class="stats-grid">
@@ -465,7 +465,13 @@ async function renderDashboard(){
 async function renderCustomers(){
   let q=sb.from('customers').select('id,kf_code,company_name,status,all_time_spend,country_name,last_order_date,at_risk_flag',{count:'exact'});
   if(S.custSearch)q=q.ilike('company_name',`%${S.custSearch}%`);
-  if(S.custStatus)q=q.eq('status',S.custStatus);
+  if(S.custStatus==='dormant'){
+    // Dormant = status is dormant OR last order was 365+ days ago
+    const cutoff=new Date(Date.now()-365*864e5).toISOString().split('T')[0];
+    q=q.or(`status.eq.dormant,last_order_date.lt.${cutoff}`);
+  } else if(S.custStatus){
+    q=q.eq('status',S.custStatus);
+  }
   q=q.order('company_name').range(S.custPage*PG,(S.custPage+1)*PG-1);
   const{data,count}=await q;
   const pages=Math.ceil((count||0)/PG);
@@ -476,7 +482,7 @@ async function renderCustomers(){
         <input class="search-input" type="search" placeholder="Search customers…" value="${x(S.custSearch)}" oninput="custSearch(this.value)"/>
       </div>
       <div class="pills">
-        ${['','Active','Prospect','Dormant'].map(s=>`<button class="pill ${S.custStatus===s&&(s||!S.custStatus)?'on':(!s&&!S.custStatus?'on':'')}" onclick="custFilter('${s}')">${s||'All'}</button>`).join('')}
+        ${['','active','prospect','dormant'].map(s=>`<button class="pill ${S.custStatus===s?'on':''}" onclick="custFilter('${s}')">${s?s.charAt(0).toUpperCase()+s.slice(1):'All'}</button>`).join('')}
       </div>
       <div class="spacer"></div>
       <span style="font-size:12px;color:var(--text3)">${(count||0).toLocaleString()} customers</span>
@@ -882,7 +888,7 @@ async function startImport(){
         const fk=mapping[h];if(!fk||fk.startsWith('_'))return;
         let v=row[h]?.trim()||null;
         if(fk==='all_time_spend'&&v)v=parseFloat(v.replace(/[^0-9.-]/g,''))||null;
-        if(fk==='status'&&v){const s=v.charAt(0).toUpperCase()+v.slice(1).toLowerCase();v=['Active','Prospect','Dormant'].includes(s)?s:'Active';}
+        if(fk==='status'&&v){v=v.toLowerCase();if(!['active','prospect','dormant'].includes(v))v='active';}
         if(fk==='last_order_date'&&v){try{v=new Date(v).toISOString().split('T')[0];}catch{v=null;}}
         payload[fk]=v;
       });
@@ -1103,7 +1109,7 @@ async function showAddEditCustomer(id){
     </div>
     <div class="form-row" style="margin-top:12px">
       <div><label class="f-label">Status</label><select class="f-input" id="ac-status">
-        ${['Active','Prospect','Dormant'].map(s=>`<option value="${s}" ${c?.status===s?'selected':''}>${s}</option>`).join('')}
+        ${['active','prospect','dormant'].map(s=>`<option value="${s}" ${c?.status===s?'selected':''}>${s.charAt(0).toUpperCase()+s.slice(1)}</option>`).join('')}
       </select></div>
       <div><label class="f-label">Country</label><input class="f-input" id="ac-country" value="${x(c?.country_name||'')}"/></div>
     </div>
@@ -1211,7 +1217,7 @@ async function toggleTask(taskId,el,custId){
 function x(s){if(s==null)return'';return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function n(v){return(v||0).toLocaleString();}
 function N2(v){return Number(v).toLocaleString('en-GB',{minimumFractionDigits:2,maximumFractionDigits:2});}
-function sBadge(s){const m={Active:'badge-active',Prospect:'badge-prospect',Dormant:'badge-dormant'};return`<span class="badge ${m[s]||'badge-dormant'}">${x(s||'—')}</span>`;}
+function sBadge(s){const m={active:'badge-active',prospect:'badge-prospect',dormant:'badge-dormant'};const label=s?s.charAt(0).toUpperCase()+s.slice(1):'—';return`<span class="badge ${m[s]||'badge-dormant'}">${x(label)}</span>`;}
 function initials(a,b){return((a?.[0]||'')+(b?.[0]||'')).toUpperCase()||'?';}
 function fd(d){if(!d)return'—';try{return new Date(d).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});}catch{return String(d);}}
 function fdt(d){if(!d)return'—';try{return new Date(d).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});}catch{return String(d);}}
