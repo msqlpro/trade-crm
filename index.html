@@ -469,8 +469,8 @@ async function renderCustomers(){
   // Build query step by step
   let q=sb.from('customers').select('id,kf_code,company_name,status,all_time_spend,country_name,last_order_date,at_risk_flag,store_type');
 
-  // Exclude asterisk-prefixed internal accounts server-side
-  q=q.filter('company_name','not.ilike','*%');
+  // Exclude internal accounts (asterisk-prefixed in KashFlow)
+  q=q.eq('is_internal',false);
 
   if(S.custSearch) q=q.ilike('company_name','%'+S.custSearch+'%');
 
@@ -492,7 +492,7 @@ async function renderCustomers(){
 
   // Get count separately to avoid any count+range conflicts
   let countQ=sb.from('customers').select('*',{count:'exact',head:true});
-  countQ=countQ.filter('company_name','not.ilike','*%');
+  countQ=countQ.eq('is_internal',false);
   if(S.custSearch) countQ=countQ.ilike('company_name','%'+S.custSearch+'%');
   if(S.custStatus==='dormant'){
     const cutoff=new Date(Date.now()-365*864e5).toISOString().split('T')[0];
@@ -502,8 +502,7 @@ async function renderCustomers(){
   }
   const{count}=await countQ;
 
-  // Filter asterisk accounts client-side
-  const rows=(data||[]).filter(c=>c.company_name&&!c.company_name.startsWith('*'));
+  const rows=data||[];
   const pages=Math.ceil((count||0)/PG);
 
   const th=(col,label,align)=>{
@@ -566,7 +565,7 @@ function custSort(col){
 }
 async function custCSV(){
   let q=sb.from('customers').select('kf_code,company_name,status,store_type,source,country_name,address_1,address_2,postcode,phone,mobile,all_time_spend,invoice_count,last_order_date,first_invoiced,payment_terms,discount,notes');
-  q=q.not('company_name','like','*%');
+  q=q.eq('is_internal',false);
   if(S.custSearch)q=q.ilike('company_name',`%${S.custSearch}%`);
   if(S.custStatus==='dormant'){const cutoff=new Date(Date.now()-365*864e5).toISOString().split('T')[0];q=q.or(`status.eq.dormant,last_order_date.lt.${cutoff}`);}
   else if(S.custStatus)q=q.eq('status',S.custStatus);
@@ -696,7 +695,7 @@ async function updatePipelineStage(id,stage){
 async function renderPipeline(){
   const mc=document.getElementById('main-content');
   mc.innerHTML='<div class="loading-page"><span class="spinner"></span> Loading pipeline…</div>';
-  const{data}=await sb.from('customers').select('id,company_name,status,all_time_spend,pipeline_stage,country_name,store_type,last_order_date').not('pipeline_stage','is',null).not('company_name','like','*%').order('company_name');
+  const{data}=await sb.from('customers').select('id,company_name,status,all_time_spend,pipeline_stage,country_name,store_type,last_order_date').not('pipeline_stage','is',null).eq('is_internal',false).order('company_name');
   const byStage={};
   PIPELINE_STAGES.forEach(s=>{byStage[s]=[];});
   (data||[]).forEach(c=>{if(byStage[c.pipeline_stage])byStage[c.pipeline_stage].push(c);});
@@ -742,7 +741,7 @@ async function pipeSearch(v){
   if(!v||v.length<2){res.style.display='none';return;}
   clearTimeout(_pipeT);
   _pipeT=setTimeout(async()=>{
-    const{data}=await sb.from('customers').select('id,company_name,status,store_type,all_time_spend').not('company_name','like','*%').ilike('company_name',`%${v}%`).limit(10);
+    const{data}=await sb.from('customers').select('id,company_name,status,store_type,all_time_spend').eq('is_internal',false).ilike('company_name',`%${v}%`).limit(10);
     if(data?.length){
       res.style.display='block';
       res.innerHTML=data.map(c=>`
