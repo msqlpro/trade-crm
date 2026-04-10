@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Brainbox CRM</title><!-- v20260410153201 -->
+<title>Brainbox CRM</title><!-- v20260410153509 -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet"/>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -481,7 +481,14 @@ async function renderCustomers(){
     const cutoff = new Date(Date.now()-days*864e5).toISOString();
     q = q.or('last_contacted_at.is.null,last_contacted_at.lt.'+cutoff);
   }
-  q = q.order(sortCol, {ascending: sortAsc}).range(S.custPage*PG, (S.custPage+1)*PG-1);
+  // Push NULLs to bottom for numeric sorts
+  const numericCols = ['all_time_spend','invoice_count','last_order_date','last_contacted_at'];
+  if(numericCols.includes(sortCol)){
+    q = q.order(sortCol, {ascending: sortAsc, nullsFirst: false});
+  } else {
+    q = q.order(sortCol, {ascending: sortAsc});
+  }
+  q = q.range(S.custPage*PG, (S.custPage+1)*PG-1);
 
   const {data, error} = await q;
   if(error){
