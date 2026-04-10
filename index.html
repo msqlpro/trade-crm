@@ -470,7 +470,6 @@ async function renderCustomers(){
   let q=sb.from('customers').select('id,kf_code,company_name,status,all_time_spend,country_name,last_order_date,at_risk_flag,store_type');
 
   // Exclude internal accounts (asterisk-prefixed in KashFlow)
-  q=q.neq('is_internal',true);
 
   if(S.custSearch) q=q.ilike('company_name','%'+S.custSearch+'%');
 
@@ -492,7 +491,6 @@ async function renderCustomers(){
 
   // Get count separately to avoid any count+range conflicts
   let countQ=sb.from('customers').select('*',{count:'exact',head:true});
-  countQ=countQ.neq('is_internal',true);
   if(S.custSearch) countQ=countQ.ilike('company_name','%'+S.custSearch+'%');
   if(S.custStatus==='dormant'){
     const cutoff=new Date(Date.now()-365*864e5).toISOString().split('T')[0];
@@ -565,7 +563,6 @@ function custSort(col){
 }
 async function custCSV(){
   let q=sb.from('customers').select('kf_code,company_name,status,store_type,source,country_name,address_1,address_2,postcode,phone,mobile,all_time_spend,invoice_count,last_order_date,first_invoiced,payment_terms,discount,notes');
-  q=q.neq('is_internal',true);
   if(S.custSearch)q=q.ilike('company_name',`%${S.custSearch}%`);
   if(S.custStatus==='dormant'){const cutoff=new Date(Date.now()-365*864e5).toISOString().split('T')[0];q=q.or(`status.eq.dormant,last_order_date.lt.${cutoff}`);}
   else if(S.custStatus)q=q.eq('status',S.custStatus);
@@ -695,7 +692,7 @@ async function updatePipelineStage(id,stage){
 async function renderPipeline(){
   const mc=document.getElementById('main-content');
   mc.innerHTML='<div class="loading-page"><span class="spinner"></span> Loading pipeline…</div>';
-  const{data}=await sb.from('customers').select('id,company_name,status,all_time_spend,pipeline_stage,country_name,store_type,last_order_date').not('pipeline_stage','is',null).neq('is_internal',true).order('company_name');
+  const{data}=await sb.from('customers').select('id,company_name,status,all_time_spend,pipeline_stage,country_name,store_type,last_order_date').not('pipeline_stage','is',null).order('company_name');
   const byStage={};
   PIPELINE_STAGES.forEach(s=>{byStage[s]=[];});
   (data||[]).forEach(c=>{if(byStage[c.pipeline_stage])byStage[c.pipeline_stage].push(c);});
@@ -741,7 +738,7 @@ async function pipeSearch(v){
   if(!v||v.length<2){res.style.display='none';return;}
   clearTimeout(_pipeT);
   _pipeT=setTimeout(async()=>{
-    const{data}=await sb.from('customers').select('id,company_name,status,store_type,all_time_spend').neq('is_internal',true).ilike('company_name',`%${v}%`).limit(10);
+    const{data}=await sb.from('customers').select('id,company_name,status,store_type,all_time_spend').ilike('company_name',`%${v}%`).limit(10);
     if(data?.length){
       res.style.display='block';
       res.innerHTML=data.map(c=>`
