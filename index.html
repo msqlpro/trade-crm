@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Brainbox CRM</title><!-- v20260410154107 -->
+<title>Brainbox CRM</title><!-- v20260410171215 -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet"/>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -467,7 +467,8 @@ async function renderCustomers(){
   const sortAsc = S.custSortAsc !== false;
 
   // Main data query
-  let q = sb.from('customers').select('id,kf_code,company_name,status,all_time_spend,country_name,last_order_date,last_contacted_at,store_type,source,invoice_count');
+  let q = sb.from('customers').select('id,kf_code,company_name,status,all_time_spend,last_12m_spend,prior_12m_spend,country_name,last_order_date,last_contacted_at,store_type,source,invoice_count,hidden');
+  if(!S.custShowHidden) q = q.eq('hidden', false);
   if(S.custSearch) q = q.ilike('company_name', '%'+S.custSearch+'%');
   if(S.custStatus === 'dormant'){
     const cutoff = new Date(Date.now()-365*864e5).toISOString().split('T')[0];
@@ -498,6 +499,7 @@ async function renderCustomers(){
 
   // Count query
   let cq = sb.from('customers').select('*',{count:'exact',head:true});
+  if(!S.custShowHidden) cq = cq.eq('hidden', false);
   if(S.custSearch) cq = cq.ilike('company_name','%'+S.custSearch+'%');
   if(S.custStatus==='dormant'){const cut=new Date(Date.now()-365*864e5).toISOString().split('T')[0];cq=cq.or('status.eq.dormant,last_order_date.lt.'+cut);}
   else if(S.custStatus) cq = cq.eq('status',S.custStatus);
@@ -532,6 +534,10 @@ async function renderCustomers(){
       </div>
       <div class="spacer"></div>
       <span style="font-size:12px;color:var(--text3)">${(count||0).toLocaleString()} customers</span>
+      <button class="btn btn-sm ${S.custShowHidden?'btn-amber':''}" onclick="custToggleHidden()" title="${S.custShowHidden?'Hide excluded customers':'Show excluded customers'}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${S.custShowHidden?'<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/>':'<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>'}</svg>
+        ${S.custShowHidden?'Show All':'Excl. Hidden'}
+      </button>
       <button class="btn btn-sm" onclick="custCSV()" title="Download CSV">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> CSV
       </button>
@@ -543,7 +549,9 @@ async function renderCustomers(){
         ${th('status','Status')}
         ${th('store_type','Store Type')}
         ${th('country_name','Country')}
-        ${th('all_time_spend','Spend','right')}
+        ${th('last_12m_spend','Last 12m','right')}
+        ${th('prior_12m_spend','Prev 12m','right')}
+        ${th('all_time_spend','All Time Spend','right')}
         ${th('invoice_count','Invoices','right')}
         ${th('last_order_date','Last Order')}
         ${th('last_contacted_at','Last Contacted')}
@@ -577,6 +585,7 @@ function custFilter(s){S.custStatus=s;S.custPage=0;renderCustomers();}
 function custEngagement(v){S.custEngagement=v;S.custPage=0;renderCustomers();}
 function custPg(d){S.custPage+=d;renderCustomers();}
 function daysSince(d){if(!d)return 9999;return Math.floor((Date.now()-new Date(d))/864e5);}
+function custToggleHidden(){S.custShowHidden=!S.custShowHidden;S.custPage=0;renderCustomers();}
 function custSort(col){
   if(S.custSort===col)S.custSortAsc=!S.custSortAsc;
   else{S.custSort=col;S.custSortAsc=col!=='all_time_spend';}
@@ -612,6 +621,10 @@ async function renderCustomerDetail(id){
     <button class="btn btn-sm" onclick="showLogEvent('${id}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg> Log Activity</button>
     <button class="btn btn-sm" onclick="showAddTask('${id}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg> Task</button>
     ${S.mlKey?`<button class="btn btn-sm btn-teal" onclick="syncMailerLite('${id}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> ML Sync</button>`:''}
+    <button class="btn btn-sm ${c.hidden?'btn-amber':''}" onclick="toggleHideCustomer('${id}',${c.hidden})" title="${c.hidden?'Restore to view':'Exclude from view'}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px">${c.hidden?'<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/>':'<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>'}</svg>
+      ${c.hidden?'Restore':'Hide'}
+    </button>
     <button class="btn btn-primary btn-sm" onclick="showAddEditCustomer('${id}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Edit</button>
   `);
   const contacts=conr.data||[];const events=evr.data||[];const tasks=tkr.data||[];
@@ -705,6 +718,10 @@ async function renderCustomerDetail(id){
 
 function dr(k,v){return`<div class="drow"><div class="dkey">${k}</div><div class="dval">${v}</div></div>`;}
 
+async function toggleHideCustomer(id,currentlyHidden){
+  await sb.from('customers').update({hidden:!currentlyHidden}).eq('id',id);
+  go('customer-detail',{id});
+}
 async function updatePipelineStage(id,stage){
   await sb.from('customers').update({pipeline_stage:stage||null}).eq('id',id);
 }
@@ -1309,6 +1326,14 @@ function renderSettings(){
       </div>
 
       <div class="settings-card">
+        <div class="settings-head">Hidden Customers</div>
+        <div class="settings-body">
+          <div class="settings-note">Hidden customers are excluded from the main customer list. Use the Hide button on any customer record to exclude them, or restore them here.</div>
+          <div id="hidden-cust-list" style="margin-top:12px">Loading…</div>
+        </div>
+      </div>
+
+      <div class="settings-card">
         <div class="settings-head">About This CRM</div>
         <div class="settings-body" style="font-size:13px;color:var(--text2);line-height:1.8">
           <p><strong>Brainbox CRM</strong> — built on Supabase + GitHub Pages</p>
@@ -1319,6 +1344,22 @@ function renderSettings(){
       </div>
     </div>
   `);
+  loadHiddenCustomers();
+}
+
+async function loadHiddenCustomers(){
+  const el=document.getElementById('hidden-cust-list');
+  if(!el)return;
+  const{data}=await sb.from('customers').select('id,kf_code,company_name,status').eq('hidden',true).order('company_name').limit(200);
+  if(!data?.length){el.innerHTML='<div style="font-size:13px;color:var(--text3)">No hidden customers.</div>';return;}
+  el.innerHTML='<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr><th style="text-align:left;padding:6px 10px;border-bottom:1px solid var(--border);color:var(--text2)">Customer</th><th style="padding:6px 10px;border-bottom:1px solid var(--border);color:var(--text2)">Code</th><th style="padding:6px 10px;border-bottom:1px solid var(--border);color:var(--text2)">Status</th><th style="padding:6px 10px;border-bottom:1px solid var(--border)"></th></tr></thead><tbody>'
+    +data.map(c=>'<tr><td style="padding:6px 10px;border-bottom:1px solid var(--border)"><a href="#" onclick="go(\'customer-detail\',{id:\''+c.id+'\'}); return false" style="color:var(--blue)">'+x(c.company_name)+'</a></td><td style="padding:6px 10px;border-bottom:1px solid var(--border);font-family:var(--mono);font-size:11px;color:var(--text3)">'+x(c.kf_code||'')+'</td><td style="padding:6px 10px;border-bottom:1px solid var(--border)">'+sBadge(c.status)+'</td><td style="padding:6px 10px;border-bottom:1px solid var(--border)"><button class="btn btn-xs" onclick="restoreCustomer(\''+c.id+'\',this)">Restore</button></td></tr>').join('')
+    +'</tbody></table>';
+}
+async function restoreCustomer(id,btn){
+  btn.textContent='Restoring…';btn.disabled=true;
+  await sb.from('customers').update({hidden:false}).eq('id',id);
+  loadHiddenCustomers();
 }
 
 async function saveSettings(){
