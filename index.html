@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Brainbox CRM</title><!-- v20260410093426 -->
+<title>Brainbox CRM</title><!-- v20260410100922 -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet"/>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -896,26 +896,43 @@ function handleCsvFile(file){
 }
 
 function parseCSV(text){
-  const lines=text.replace(/\r\n/g,'\n').replace(/\r/g,'\n').split('\n');
-  const headers=parseLine(lines[0]);
+  // Robust parser: handles quoted fields containing newlines, commas, quotes
+  text=text.replace(/\r\n/g,'\n').replace(/\r/g,'\n');
+  const records=[];let cur='';let inQ=false;
+  for(let i=0;i<text.length;i++){
+    const ch=text[i];
+    if(ch==='"'){
+      if(inQ&&text[i+1]==='"'){cur+='"';i++;}
+      else inQ=!inQ;
+    } else if(ch==='\n'&&!inQ){
+      records.push(cur);cur='';
+    } else {
+      cur+=ch;
+    }
+  }
+  if(cur.trim())records.push(cur);
+  if(!records.length)return{headers:[],rows:[]};
+  const headers=splitRecord(records[0]);
   const rows=[];
-  for(let i=1;i<lines.length;i++){
-    if(!lines[i].trim())continue;
-    const vals=parseLine(lines[i]);
-    const row={};headers.forEach((h,j)=>{row[h]=vals[j]||'';});rows.push(row);
+  for(let i=1;i<records.length;i++){
+    if(!records[i].trim())continue;
+    const vals=splitRecord(records[i]);
+    const row={};headers.forEach((h,j)=>{row[h]=(vals[j]||'').trim();});
+    rows.push(row);
   }
   return{headers,rows};
 }
 
-function parseLine(line){
+function splitRecord(rec){
+  // Split a single (possibly multi-line) record into fields
   const fields=[];let cur='';let inQ=false;
-  for(let i=0;i<line.length;i++){
-    const ch=line[i];
-    if(ch==='"'){if(inQ&&line[i+1]==='"'){cur+='"';i++;}else inQ=!inQ;}
-    else if(ch===','&&!inQ){fields.push(cur.trim());cur='';}
+  for(let i=0;i<rec.length;i++){
+    const ch=rec[i];
+    if(ch==='"'){if(inQ&&rec[i+1]==='"'){cur+='"';i++;}else inQ=!inQ;}
+    else if(ch===','&&!inQ){fields.push(cur);cur='';}
     else cur+=ch;
   }
-  fields.push(cur.trim());return fields;
+  fields.push(cur);return fields;
 }
 
 function showMappingStep(){
