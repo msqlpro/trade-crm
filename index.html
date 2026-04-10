@@ -690,16 +690,63 @@ function taskFilter(f){S.taskFilter=f;renderTasks();}
 // ═══ IMPORT CENTRE ═══
 let _csv={headers:[],rows:[],mapping:{}};
 const IMPORT_FIELDS=[
+  // Core customer fields
   {key:'company_name',label:'Company Name',required:true},
   {key:'kf_code',label:'KashFlow Code'},
-  {key:'status',label:'Status (Active/Prospect/Dormant)'},
+  {key:'status',label:'Status (active/prospect/dormant)'},
+  // Address
+  {key:'address_1',label:'Address Line 1'},
+  {key:'address_2',label:'Address Line 2'},
+  {key:'address_3',label:'Address Line 3'},
+  {key:'address_4',label:'Address Line 4'},
+  {key:'postcode',label:'Postcode'},
   {key:'country_name',label:'Country'},
-  {key:'all_time_spend',label:'All-time Spend'},
-  {key:'last_order_date',label:'Last Order Date'},
-  {key:'notes',label:'Notes'},
-  {key:'_email',label:'Primary Contact Email'},
+  // Delivery address
+  {key:'delivery_address_1',label:'Delivery Address 1'},
+  {key:'delivery_address_2',label:'Delivery Address 2'},
+  {key:'delivery_address_3',label:'Delivery Address 3'},
+  {key:'delivery_address_4',label:'Delivery Address 4'},
+  {key:'delivery_postcode',label:'Delivery Postcode'},
+  // Contact details
+  {key:'phone',label:'Phone / Tel'},
+  {key:'mobile',label:'Mobile'},
+  {key:'website',label:'Website'},
+  {key:'vat_number',label:'VAT Number'},
+  {key:'eori',label:'EORI Number'},
+  // Financial
+  {key:'all_time_spend',label:'All-time Spend (Total Paid)'},
+  {key:'invoice_count',label:'Number of Invoices'},
+  {key:'discount',label:'Discount %'},
+  {key:'payment_terms',label:'Payment Terms'},
+  {key:'sales_code',label:'Sales Code'},
+  {key:'sales_code_name',label:'Sales Code Name'},
+  // Classification
+  {key:'source',label:'Source (Trade Show / Channel)'},
+  {key:'store_type',label:'Store Type'},
+  {key:'member_number',label:'Member Number'},
+  {key:'po_number',label:'PO Number Required'},
+  {key:'naked',label:'Naked (0/1)'},
+  {key:'new_non_ha',label:'New Non-HA Customer (0/1)'},
+  // Dates
+  {key:'last_order_date',label:'Last Invoiced / Last Order Date'},
+  {key:'first_invoiced',label:'First Invoiced Date'},
+  {key:'kf_created_date',label:'Customer Created Date'},
+  // Notes
+  {key:'notes',label:'Notes (CRM activity log)'},
+  {key:'customer_notes',label:'Customer Notes (internal)'},
+  // Contacts (written to contacts table)
+  {key:'_title',label:'Contact Title'},
   {key:'_first_name',label:'Contact First Name'},
   {key:'_last_name',label:'Contact Last Name'},
+  {key:'_email',label:'Contact Email'},
+  {key:'_phone',label:'Contact Phone'},
+  {key:'_mobile',label:'Contact Mobile'},
+  {key:'_name2',label:'Contact 2 Name'},
+  {key:'_email2',label:'Contact 2 Email'},
+  {key:'_name3',label:'Contact 3 Name'},
+  {key:'_email3',label:'Contact 3 Email'},
+  {key:'_name4',label:'Contact 4 Name'},
+  {key:'_email4',label:'Contact 4 Email'},
 ];
 
 function renderImport(){
@@ -788,17 +835,59 @@ function handleCsvFile(file){
       _csv={headers:parsed.headers,rows:parsed.rows,filename:file.name,mapping:{}};
       // Auto-map columns by guessing
       parsed.headers.forEach(h=>{
-        const hl=h.toLowerCase().replace(/[^a-z]/g,'_');
-        if(hl.includes('company')||hl.includes('name')&&!hl.includes('first')&&!hl.includes('last'))_csv.mapping[h]='company_name';
-        else if(hl.includes('kf')||hl.includes('kashflow')||hl.includes('code'))_csv.mapping[h]='kf_code';
-        else if(hl.includes('status'))_csv.mapping[h]='status';
-        else if(hl.includes('country'))_csv.mapping[h]='country_name';
-        else if(hl.includes('spend')||hl.includes('turnover'))_csv.mapping[h]='all_time_spend';
-        else if(hl.includes('last_order')||hl.includes('order_date'))_csv.mapping[h]='last_order_date';
-        else if(hl.includes('note'))_csv.mapping[h]='notes';
-        else if(hl.includes('email'))_csv.mapping[h]='_email';
-        else if(hl.includes('first'))_csv.mapping[h]='_first_name';
-        else if(hl.includes('last')&&hl.includes('name'))_csv.mapping[h]='_last_name';
+        const hl=h.toLowerCase().trim();
+        const hr=hl.replace(/[^a-z0-9]/g,'');
+        // KashFlow-specific mappings
+        if(hl==='code') _csv.mapping[h]='kf_code';
+        else if(hl==='name'||hl==='company name') _csv.mapping[h]='company_name';
+        else if(hl==='full contact name') return; // skip
+        else if(hl==='contact title') _csv.mapping[h]='_title';
+        else if(hl==='contact first name') _csv.mapping[h]='_first_name';
+        else if(hl==='contact last name') _csv.mapping[h]='_last_name';
+        else if(hl==='address 1') _csv.mapping[h]='address_1';
+        else if(hl==='address 2') _csv.mapping[h]='address_2';
+        else if(hl==='address 3') _csv.mapping[h]='address_3';
+        else if(hl==='address 4') _csv.mapping[h]='address_4';
+        else if(hl==='postcode') _csv.mapping[h]='postcode';
+        else if(hl==='country') _csv.mapping[h]='country_name';
+        else if(hl==='tel') _csv.mapping[h]='phone';
+        else if(hl==='fax') return; // skip fax
+        else if(hl==='mobile') _csv.mapping[h]='mobile';
+        else if(hl==='web') _csv.mapping[h]='website';
+        else if(hl==='email') _csv.mapping[h]='_email';
+        else if(hl==='vat num.'||hl==='vat number'||hr==='vatnum') _csv.mapping[h]='vat_number';
+        else if(hl==='total paid') _csv.mapping[h]='all_time_spend';
+        else if(hl==='notes') _csv.mapping[h]='notes';
+        else if(hl==='customer notes') _csv.mapping[h]='customer_notes';
+        else if(hl==='default sales code') _csv.mapping[h]='sales_code';
+        else if(hl==='default sales code name') _csv.mapping[h]='sales_code_name';
+        else if(hl==='no. of invoices') _csv.mapping[h]='invoice_count';
+        else if(hl==='source') _csv.mapping[h]='source';
+        else if(hl==='po number') _csv.mapping[h]='po_number';
+        else if(hl==='email 2') _csv.mapping[h]='_email2';
+        else if(hl==='email 3') _csv.mapping[h]='_email3';
+        else if(hl==='email 4') _csv.mapping[h]='_email4';
+        else if(hl==='name 2') _csv.mapping[h]='_name2';
+        else if(hl==='name 3') _csv.mapping[h]='_name3';
+        else if(hl==='name 4') _csv.mapping[h]='_name4';
+        else if(hl==='member no.') _csv.mapping[h]='member_number';
+        else if(hl==='eori') _csv.mapping[h]='eori';
+        else if(hl==='store type') _csv.mapping[h]='store_type';
+        else if(hl==='new non ha customer') _csv.mapping[h]='new_non_ha';
+        else if(hl==='naked') _csv.mapping[h]='naked';
+        else if(hl==='payment terms') _csv.mapping[h]='payment_terms';
+        else if(hl==='discount') _csv.mapping[h]='discount';
+        else if(hl==='delivery address 1') _csv.mapping[h]='delivery_address_1';
+        else if(hl==='delivery address 2') _csv.mapping[h]='delivery_address_2';
+        else if(hl==='delivery address 3') _csv.mapping[h]='delivery_address_3';
+        else if(hl==='delivery address 4') _csv.mapping[h]='delivery_address_4';
+        else if(hl==='delivery postcode') _csv.mapping[h]='delivery_postcode';
+        else if(hl==='customer created date') _csv.mapping[h]='kf_created_date';
+        else if(hl==='first invoiced') _csv.mapping[h]='first_invoiced';
+        else if(hl==='last invoiced') _csv.mapping[h]='last_order_date';
+        // Generic fallbacks
+        else if(hl.includes('company')) _csv.mapping[h]='company_name';
+        else if(hl.includes('kashflow')||hl.includes('kf code')) _csv.mapping[h]='kf_code';
       });
       showMappingStep();
     }catch(err){document.getElementById('upload-err').textContent='Error reading CSV: '+err.message;}
@@ -884,14 +973,43 @@ async function startImport(){
       const kfCode=kfCol?row[kfCol]?.trim()||null:null;
       // Build customer payload
       const payload={company_name:coName};
+      // Date parser: handles DD/MM/YYYY and YYYY-MM-DD
+      const parseImportDate=v=>{
+        if(!v)return null;
+        v=v.trim();
+        if(!v)return null;
+        // Try DD/MM/YYYY
+        const dm=/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(v);
+        if(dm)return`${dm[3]}-${dm[2].padStart(2,'0')}-${dm[1].padStart(2,'0')}`;
+        // Try YYYY-MM-DD
+        if(/^\d{4}-\d{2}-\d{2}$/.test(v))return v;
+        // Try JS Date parse
+        try{const d=new Date(v);if(!isNaN(d))return d.toISOString().split('T')[0];}catch{}
+        return null;
+      };
+      const dateFields=['last_order_date','first_invoiced','kf_created_date'];
+      const numFields=['all_time_spend','invoice_count','discount'];
+      const boolFields=['naked','new_non_ha'];
       Object.keys(mapping).forEach(h=>{
         const fk=mapping[h];if(!fk||fk.startsWith('_'))return;
         let v=row[h]?.trim()||null;
-        if(fk==='all_time_spend'&&v)v=parseFloat(v.replace(/[^0-9.-]/g,''))||null;
-        if(fk==='status'&&v){v=v.toLowerCase();if(!['active','prospect','dormant'].includes(v))v='active';}
-        if(fk==='last_order_date'&&v){try{v=new Date(v).toISOString().split('T')[0];}catch{v=null;}}
+        if(!v){payload[fk]=null;return;}
+        if(numFields.includes(fk))v=parseFloat(v.replace(/[^0-9.-]/g,''))||null;
+        else if(dateFields.includes(fk))v=parseImportDate(v);
+        else if(boolFields.includes(fk))v=['1','yes','true','y'].includes(v.toLowerCase());
+        else if(fk==='status'){
+          v=v.toLowerCase();
+          if(!['active','prospect','dormant'].includes(v))v='active';
+        }
         payload[fk]=v;
       });
+      // Auto-set status from Last Invoiced if status not explicitly mapped
+      if(!Object.values(mapping).includes('status')&&payload.last_order_date){
+        const cutoff=new Date(Date.now()-365*864e5).toISOString().split('T')[0];
+        payload.status=payload.last_order_date>=cutoff?'active':'dormant';
+      } else if(!Object.values(mapping).includes('status')&&!payload.last_order_date){
+        payload.status='prospect';
+      }
       // Dedup: check by kf_code or company_name
       let existing=null;
       if(kfCode){const{data}=await sb.from('customers').select('id').eq('kf_code',kfCode).maybeSingle();existing=data;}
@@ -905,16 +1023,21 @@ async function startImport(){
         if(error)throw error;
         custId=data.id;created++;
       }
-      // Handle contact columns
-      const emailCol=Object.keys(mapping).find(h=>mapping[h]==='_email');
-      const firstCol=Object.keys(mapping).find(h=>mapping[h]==='_first_name');
-      const lastCol=Object.keys(mapping).find(h=>mapping[h]==='_last_name');
-      const email=emailCol?row[emailCol]?.trim()||null:null;
-      const first=firstCol?row[firstCol]?.trim()||null:null;
-      const last=lastCol?row[lastCol]?.trim()||null:null;
-      if(email||first||last){
+      // Handle contact columns - primary + extras
+      const gc=fk=>{ const col=Object.keys(mapping).find(h=>mapping[h]===fk); return col?row[col]?.trim()||null:null; };
+      const pEmail=gc('_email'),pFirst=gc('_first_name'),pLast=gc('_last_name');
+      const pTitle=gc('_title'),pPhone=gc('_phone'),pMobile=gc('_mobile');
+      if(pEmail||pFirst||pLast){
         const{data:existCt}=await sb.from('contacts').select('id').eq('customer_id',custId).eq('is_primary',true).maybeSingle();
-        if(!existCt)await sb.from('contacts').insert({customer_id:custId,email,first_name:first,last_name:last,is_primary:true});
+        if(!existCt)await sb.from('contacts').insert({customer_id:custId,first_name:pFirst,last_name:pLast,email:pEmail,phone:pPhone||gc('phone'),role:pTitle,is_primary:true});
+      }
+      // Additional contacts (Name 2/3/4 + Email 2/3/4)
+      for(const n of ['2','3','4']){
+        const nm=gc('_name'+n),em=gc('_email'+n);
+        if(nm||em){
+          const parts=(nm||'').split(' ');
+          await sb.from('contacts').insert({customer_id:custId,first_name:parts[0]||null,last_name:parts.slice(1).join(' ')||null,email:em,is_primary:false}).select();
+        }
       }
     }catch(err){errors++;errLog.push(`Row ${i+2}: ${err.message}`);}
   }
