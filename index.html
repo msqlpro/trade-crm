@@ -538,16 +538,29 @@ async function renderCustomerDetail(id){
         <div class="detail-card">
           <div class="dcard-head"><span class="dcard-title">Company Info</span>${sBadge(c.status)}</div>
           ${dr('KashFlow',`<span style="font-family:var(--mono);font-size:12px">${x(c.kf_code||'—')}</span>`)}
-          ${dr('Country',x(c.country_name||'—'))}
-          ${dr('Spend',c.all_time_spend?`<strong>£${N2(c.all_time_spend)}</strong>`:'—')}
-          ${dr('Last Order',c.last_order_date?fd(c.last_order_date):'—')}
-          ${dr('At Risk',c.at_risk_flag?'<span class="badge badge-at-risk">Yes</span>':'<span style="color:var(--text3)">No</span>')}
           ${dr('Pipeline',`<select onchange="updatePipelineStage('${id}',this.value)" style="border:1px solid var(--border);border-radius:5px;padding:3px 8px;font-size:12px;font-family:var(--f);background:var(--surface);color:var(--text);outline:none">
             <option value="">— None —</option>
             ${PIPELINE_STAGES.map(s=>`<option value="${s}" ${pipeStage===s?'selected':''}>${s}</option>`).join('')}
           </select>`)}
+          ${dr('Store Type',c.store_type?`<span class="tag-chip">${x(c.store_type)}</span>`:'—')}
+          ${dr('Source',c.source?x(c.source):'—')}
+          ${c.website?dr('Website',`<a href="${x(c.website)}" target="_blank" style="color:var(--blue);font-size:12px">${x(c.website)}</a>`):''}
+          ${c.phone||c.mobile?dr('Phone',`${c.phone?x(c.phone):''}${c.phone&&c.mobile?' / ':''}${c.mobile?x(c.mobile):''}`):''}
+          ${dr('Country',x(c.country_name||'—'))}
+          ${c.address_1?dr('Address',`<span style="font-size:12px;line-height:1.6">${[c.address_1,c.address_2,c.address_3,c.address_4,c.postcode].filter(Boolean).map(v=>x(v)).join('<br>')}</span>`):''}
+          ${c.delivery_address_1?dr('Delivery',`<span style="font-size:12px;line-height:1.6">${[c.delivery_address_1,c.delivery_address_2,c.delivery_address_3,c.delivery_address_4,c.delivery_postcode].filter(Boolean).map(v=>x(v)).join('<br>')}</span>`):''}
+          ${dr('Spend',c.all_time_spend?`<strong>£${N2(c.all_time_spend)}</strong>${c.invoice_count?` <span style="font-size:11px;color:var(--text3)">(${c.invoice_count} invoices)</span>`:''}`:'—')}
+          ${dr('Last Order',c.last_order_date?fd(c.last_order_date):'—')}
+          ${c.first_invoiced?dr('First Order',fd(c.first_invoiced)):''}
+          ${c.kf_created_date?dr('KF Created',fd(c.kf_created_date)):''}
+          ${c.payment_terms?dr('Payment',x(c.payment_terms)+' days'):''}
+          ${c.discount?dr('Discount',c.discount+'%'):''}
+          ${c.vat_number?dr('VAT No.',`<span style="font-family:var(--mono);font-size:12px">${x(c.vat_number)}</span>`):''}
+          ${c.eori?dr('EORI',`<span style="font-family:var(--mono);font-size:12px">${x(c.eori)}</span>`):''}
+          ${dr('At Risk',c.at_risk_flag?'<span class="badge badge-at-risk">Yes</span>':'<span style="color:var(--text3)">No</span>')}
           ${c.mailerlite_id?dr('MailerLite',`<span style="font-family:var(--mono);font-size:11px">${x(c.mailerlite_id)}</span>`):''}
-          ${c.notes?dr('Notes',`<span style="white-space:pre-wrap;font-size:12px;color:var(--text2)">${x(c.notes)}</span>`):''}
+          ${c.customer_notes?dr('Int. Notes',`<span style="white-space:pre-wrap;font-size:12px;color:var(--text2)">${x(c.customer_notes)}</span>`):''}
+          ${c.notes?dr('CRM Notes',`<span style="white-space:pre-wrap;font-size:12px;color:var(--text2)">${x(c.notes)}</span>`):''}
         </div>
 
         <div class="detail-card">
@@ -1261,6 +1274,24 @@ async function showAddEditCustomer(id){
       </select></div>
       <div><label class="f-label">All-time Spend (£)</label><input class="f-input" type="number" id="ac-spend" value="${c?.all_time_spend||''}"/></div>
     </div>
+    <div class="form-row" style="margin-top:12px">
+      <div><label class="f-label">Phone</label><input class="f-input" id="ac-phone" value="${x(c?.phone||'')}"/></div>
+      <div><label class="f-label">Mobile</label><input class="f-input" id="ac-mobile" value="${x(c?.mobile||'')}"/></div>
+    </div>
+    <div class="form-row" style="margin-top:12px">
+      <div><label class="f-label">Source</label><input class="f-input" id="ac-source" value="${x(c?.source||'')}" placeholder="e.g. Autumn Fair 2024"/></div>
+      <div><label class="f-label">Store Type</label><input class="f-input" id="ac-store-type" value="${x(c?.store_type||'')}" placeholder="e.g. Independent"/></div>
+    </div>
+    <div style="margin-top:12px"><label class="f-label">Address</label><input class="f-input" id="ac-addr1" value="${x(c?.address_1||'')}" placeholder="Line 1"/></div>
+    <div class="form-row" style="margin-top:6px">
+      <div><input class="f-input" id="ac-addr2" value="${x(c?.address_2||'')}" placeholder="Line 2"/></div>
+      <div><input class="f-input" id="ac-postcode" value="${x(c?.postcode||'')}" placeholder="Postcode"/></div>
+    </div>
+    <div style="margin-top:12px"><label class="f-label">Website</label><input class="f-input" id="ac-website" type="url" value="${x(c?.website||'')}"/></div>
+    <div class="form-row" style="margin-top:12px">
+      <div><label class="f-label">Payment Terms (days)</label><input class="f-input" id="ac-payment" value="${x(c?.payment_terms||'')}"/></div>
+      <div><label class="f-label">Discount %</label><input class="f-input" type="number" id="ac-discount" value="${c?.discount||''}"/></div>
+    </div>
     <div style="margin-top:12px"><label class="f-label">Notes</label><textarea class="f-input" id="ac-notes" rows="3">${x(c?.notes||'')}</textarea></div>
     <div id="ac-err" class="inline-err"></div>`,
     `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveCustomer('${id||''}')">Save</button>`,true);
@@ -1271,8 +1302,10 @@ async function saveCustomer(id){
   const err=document.getElementById('ac-err');
   if(!name){err.textContent='Company name is required.';return;}
   err.textContent='';
-  const payload={company_name:name,kf_code:document.getElementById('ac-kf').value.trim()||null,status:document.getElementById('ac-status').value,country_name:document.getElementById('ac-country').value.trim()||null,notes:document.getElementById('ac-notes').value.trim()||null,pipeline_stage:document.getElementById('ac-pipe').value||null};
-  const spend=document.getElementById('ac-spend').value;if(spend)payload.all_time_spend=parseFloat(spend);
+  const gv=id=>document.getElementById(id)?.value?.trim()||null;
+  const payload={company_name:name,kf_code:gv('ac-kf'),status:document.getElementById('ac-status').value,country_name:gv('ac-country'),notes:gv('ac-notes'),pipeline_stage:document.getElementById('ac-pipe').value||null,phone:gv('ac-phone'),mobile:gv('ac-mobile'),source:gv('ac-source'),store_type:gv('ac-store-type'),address_1:gv('ac-addr1'),address_2:gv('ac-addr2'),postcode:gv('ac-postcode'),website:gv('ac-website'),payment_terms:gv('ac-payment')};
+  const spend=document.getElementById('ac-spend')?.value;if(spend)payload.all_time_spend=parseFloat(spend);
+  const disc=document.getElementById('ac-discount')?.value;if(disc)payload.discount=parseFloat(disc);
   const{error}=id?await sb.from('customers').update(payload).eq('id',id):await sb.from('customers').insert(payload);
   if(error){err.textContent=error.message;return;}
   closeModal();refreshCounts();
