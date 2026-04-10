@@ -552,3 +552,933 @@ async function custCSV(){
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);
   a.download='customers_'+new Date().toISOString().split('T')[0]+'.csv';a.click();
 }
+async function renderCustomerDetail(id){
+  const[cr,conr,evr,tkr]=await Promise.all([
+    sb.from('customers').select('*').eq('id',id).single(),
+    sb.from('contacts').select('*').eq('customer_id',id).order('is_primary',{ascending:false}),
+    sb.from('events').select('*').eq('customer_id',id).order('occurred_at',{ascending:false}).limit(200),
+    sb.from('tasks').select('*').eq('customer_id',id).order('due_date').limit(50),
+  ]);
+  const c=cr.data;if(!c){setPage('<p style="padding:20px;color:var(--text3)">Customer not found.</p>');return;}
+  setTitle(c.company_name);
+  document.getElementById('tb-sub').textContent=c.kf_code?'· '+c.kf_code:'';
+  setActions(`
+    <button class="btn btn-sm" onclick="showLogEvent('${id}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg> Log Activity</button>
+    <button class="btn btn-sm" onclick="showAddTask('${id}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg> Task</button>
+    ${S.mlKey?`<button class="btn btn-sm btn-teal" onclick="syncMailerLite('${id}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> ML Sync</button>`:''}
+    <button class="btn btn-primary btn-sm" onclick="showAddEditCustomer('${id}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Edit</button>
+  `);
+  const contacts=conr.data||[];const events=evr.data||[];const tasks=tkr.data||[];
+  const pipeStage=c.pipeline_stage||'';
+  setPage(`
+    <button class="back-btn" onclick="go('customers')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>Back to customers</button>
+    <div id="ml-status"></div>
+    <div style="display:grid;grid-template-columns:300px 1fr;gap:16px;align-items:start">
+      <div>
+        <div class="detail-card">
+          <div class="dcard-head"><span class="dcard-title">Company Info</span>${sBadge(c.status)}</div>
+          ${dr('KashFlow',`<span style="font-family:var(--mono);font-size:12px">${x(c.kf_code||'—')}</span>`)}
+          ${dr('Pipeline',`<select onchange="updatePipelineStage('${id}',this.value)" style="border:1px solid var(--border);border-radius:5px;padding:3px 8px;font-size:12px;font-family:var(--f);background:var(--surface);color:var(--text);outline:none">
+            <option value="">— None —</option>
+            ${PIPELINE_STAGES.map(s=>`<option value="${s}" ${pipeStage===s?'selected':''}>${s}</option>`).join('')}
+          </select>`)}
+          ${dr('Store Type',c.store_type?`<span class="tag-chip">${x(c.store_type)}</span>`:'—')}
+          ${dr('Source',c.source?x(c.source):'—')}
+          ${c.website?dr('Website',`<a href="${x(c.website)}" target="_blank" style="color:var(--blue);font-size:12px">${x(c.website)}</a>`):''}
+          ${c.phone||c.mobile?dr('Phone',`${c.phone?x(c.phone):''}${c.phone&&c.mobile?' / ':''}${c.mobile?x(c.mobile):''}`):''}
+          ${dr('Country',x(c.country_name||'—'))}
+          ${c.address_1?dr('Address',`<span style="font-size:12px;line-height:1.6">${[c.address_1,c.address_2,c.address_3,c.address_4,c.postcode].filter(Boolean).map(v=>x(v)).join('<br>')}</span>`):''}
+          ${c.delivery_address_1?dr('Delivery',`<span style="font-size:12px;line-height:1.6">${[c.delivery_address_1,c.delivery_address_2,c.delivery_address_3,c.delivery_address_4,c.delivery_postcode].filter(Boolean).map(v=>x(v)).join('<br>')}</span>`):''}
+          ${dr('Spend',c.all_time_spend?`<strong>£${N2(c.all_time_spend)}</strong>${c.invoice_count?` <span style="font-size:11px;color:var(--text3)">(${c.invoice_count} invoices)</span>`:''}`:'—')}
+          ${dr('Last Order',c.last_order_date?fd(c.last_order_date):'—')}
+          ${c.first_invoiced?dr('First Order',fd(c.first_invoiced)):''}
+          ${c.kf_created_date?dr('KF Created',fd(c.kf_created_date)):''}
+          ${c.payment_terms?dr('Payment',x(c.payment_terms)+' days'):''}
+          ${c.discount?dr('Discount',c.discount+'%'):''}
+          ${c.vat_number?dr('VAT No.',`<span style="font-family:var(--mono);font-size:12px">${x(c.vat_number)}</span>`):''}
+          ${c.eori?dr('EORI',`<span style="font-family:var(--mono);font-size:12px">${x(c.eori)}</span>`):''}
+          ${dr('At Risk',c.at_risk_flag?'<span class="badge badge-at-risk">Yes</span>':'<span style="color:var(--text3)">No</span>')}
+          ${c.mailerlite_id?dr('MailerLite',`<span style="font-family:var(--mono);font-size:11px">${x(c.mailerlite_id)}</span>`):''}
+          ${c.customer_notes?dr('Int. Notes',`<span style="white-space:pre-wrap;font-size:12px;color:var(--text2)">${x(c.customer_notes)}</span>`):''}
+          ${c.notes?dr('CRM Notes',`<span style="white-space:pre-wrap;font-size:12px;color:var(--text2)">${x(c.notes)}</span>`):''}
+        </div>
+
+        <div class="detail-card">
+          <div class="dcard-head"><span class="dcard-title">Contacts (${contacts.length})</span><button class="btn btn-xs" onclick="showAddContact('${id}')">+ Add</button></div>
+          ${contacts.length?contacts.map(ct=>`
+            <div class="contact-item">
+              <div class="avatar">${initials(ct.first_name,ct.last_name)}</div>
+              <div style="flex:1;min-width:0">
+                <div class="contact-name">${x(ct.first_name||'')} ${x(ct.last_name||'')}${ct.is_primary?'<span class="primary-badge">Primary</span>':''}</div>
+                ${ct.role?`<div class="contact-meta">${x(ct.role)}</div>`:''}
+                ${ct.email?`<div class="contact-meta" style="color:var(--blue)">${x(ct.email)}</div>`:''}
+                ${ct.phone?`<div class="contact-meta">${x(ct.phone)}</div>`:''}
+              </div>
+            </div>`).join(''):'<div style="padding:14px 16px;text-align:center;color:var(--text3);font-size:13px">No contacts yet</div>'}
+        </div>
+
+        <div class="detail-card">
+          <div class="dcard-head"><span class="dcard-title">Tasks (${tasks.length})</span><button class="btn btn-xs" onclick="showAddTask('${id}')">+ Add</button></div>
+          ${tasks.length?tasks.map(t=>`
+            <div class="task-item">
+              <div class="task-check ${t.status==='done'?'done':''}" onclick="toggleTask('${t.id}',this,'${id}')"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
+              <div class="task-content">
+                <div class="task-title ${t.status==='done'?'done':''}">${x(t.title)}</div>
+                <div class="task-meta">
+                  ${t.due_date?`<span class="${past(t.due_date)&&t.status!=='done'?'task-overdue':''}">Due ${fd(t.due_date)}</span>`:''}
+                  <span class="badge badge-${t.status}" style="font-size:10px">${t.status.replace('_',' ')}</span>
+                </div>
+              </div>
+            </div>`).join(''):'<div style="padding:14px;text-align:center;color:var(--text3);font-size:13px">No tasks</div>'}
+        </div>
+      </div>
+
+      <div class="detail-card" style="margin-bottom:0">
+        <div class="dcard-head"><span class="dcard-title">Activity Timeline (${events.length})</span><button class="btn btn-xs btn-primary" onclick="showLogEvent('${id}')">+ Log</button></div>
+        <div class="timeline">
+          ${events.length?events.map(e=>{
+            const et=S.etypes[e.event_type];const col=et?.colour||'#94a3b8';const label=et?.label||e.event_type||'Note';
+            return`<div class="tl-item">
+              <div class="tl-bar" style="background:${col}"></div>
+              <div class="tl-body">
+                <div class="tl-head">
+                  <span class="tl-type" style="background:${col}20;color:${col}">${x(label)}</span>
+                  ${e.source&&e.source!=='manual'?`<span class="tl-source">${x(e.source)}</span>`:''}
+                  <span class="tl-date">${fdt(e.occurred_at)}</span>
+                </div>
+                ${e.title?`<div class="tl-title">${x(e.title)}</div>`:''}
+                ${e.body?`<div class="tl-body-text">${x(e.body)}</div>`:''}
+                ${e.created_by?`<div class="tl-by">by ${x(e.created_by)}</div>`:''}
+              </div>
+            </div>`;}).join(''):'<div class="tl-empty">No activity yet. Use "Log Activity" to add the first entry.</div>'}
+        </div>
+      </div>
+    </div>
+  `);
+}
+
+function dr(k,v){return`<div class="drow"><div class="dkey">${k}</div><div class="dval">${v}</div></div>`;}
+
+async function updatePipelineStage(id,stage){
+  await sb.from('customers').update({pipeline_stage:stage||null}).eq('id',id);
+}
+
+// ═══ PIPELINE KANBAN ═══
+async function renderPipeline(){
+  const mc=document.getElementById('main-content');
+  mc.innerHTML='<div class="loading-page"><span class="spinner"></span> Loading pipeline…</div>';
+  const{data}=await sb.from('customers').select('id,company_name,status,all_time_spend,pipeline_stage,country_name,store_type,last_order_date').not('pipeline_stage','is',null).not('company_name','like','*%').order('company_name');
+  const byStage={};
+  PIPELINE_STAGES.forEach(s=>{byStage[s]=[];});
+  (data||[]).forEach(c=>{if(byStage[c.pipeline_stage])byStage[c.pipeline_stage].push(c);});
+  const stageOpts=PIPELINE_STAGES.map(s=>'<option value="'+s+'">'+s+'</option>').join('');
+  const kanbanCols=PIPELINE_STAGES.map(stage=>{
+    const cards=byStage[stage]||[];
+    const col=STAGE_COLOURS[stage]||'#94a3b8';
+    const cardHtml=cards.length?cards.map(c=>{
+      const mv=PIPELINE_STAGES.filter(s=>s!==stage).map(s=>'<button onclick="moveStage(\''+c.id+'\',\''+s+'\',event)">'+(s==='Won'?'✓ Won':s==='Lost'?'✕ Lost':'→ '+s)+'</button>').join('');
+      return '<div class="kcard" onclick="go(\'customer-detail\',{id:\''+c.id+'\'})">'
+        +'<div class="kcard-name">'+x(c.company_name)+'</div>'
+        +'<div class="kcard-meta">'
+        +(c.store_type?'<span style="color:var(--text3);font-size:11px">'+x(c.store_type)+'</span>':'')
+        +(c.all_time_spend?'<span class="kcard-spend">£'+N2(c.all_time_spend)+'</span>':'')
+        +(c.last_order_date?'<span style="color:var(--text3);font-size:11px">Last: '+fd(c.last_order_date)+'</span>':'')
+        +'</div><div class="kcard-move" onclick="event.stopPropagation()">'+mv
+        +'<button onclick="moveStage(\''+c.id+'\',null,event)" style="color:var(--red)">✕ Remove</button></div></div>';
+    }).join(''):'<div class="kanban-empty">No customers</div>';
+    return '<div class="kanban-col">'
+      +'<div class="kanban-head"><span class="kanban-label" style="color:'+col+'">'+stage+'</span><span class="kanban-count">'+cards.length+'</span></div>'
+      +'<div class="kanban-cards">'+cardHtml+'</div></div>';
+  }).join('');
+  mc.innerHTML='<div style="padding:20px;display:flex;flex-direction:column;height:100%;overflow:hidden">'
+    +'<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px 16px;margin-bottom:16px;flex-shrink:0">'
+    +'<div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:8px;text-transform:uppercase;letter-spacing:.05em">Add Customer to Pipeline</div>'
+    +'<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">'
+    +'<div style="position:relative;flex:1;min-width:240px;max-width:360px">'
+    +'<svg style="position:absolute;left:10px;top:50%;transform:translateY(-50%);width:14px;height:14px;color:var(--text3);pointer-events:none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>'
+    +'<input id="pipe-search" class="search-input" style="width:100%;padding-left:32px" type="text" placeholder="Type customer name to search…" oninput="pipeSearch(this.value)" autocomplete="off"/>'
+    +'<div id="pipe-results" style="position:absolute;top:calc(100% + 4px);left:0;right:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);max-height:220px;overflow-y:auto;display:none;z-index:100;box-shadow:var(--sh-lg)"></div>'
+    +'</div>'
+    +'<select id="pipe-stage-sel" class="f-input" style="width:180px;padding:7px 12px">'+stageOpts+'</select>'
+    +'<button class="btn btn-primary btn-sm" onclick="pipeAddSelected()">Add to Pipeline</button>'
+    +'<span id="pipe-msg" style="font-size:12px;color:var(--green)"></span>'
+    +'</div><input type="hidden" id="pipe-sel-id" value=""/></div>'
+    +'<div class="kanban-wrap" style="flex:1;overflow-x:auto;overflow-y:hidden">'+kanbanCols+'</div></div>';
+}
+
+let _pipeT;
+async function pipeSearch(v){
+  const res=document.getElementById('pipe-results');
+  document.getElementById('pipe-sel-id').value='';
+  if(!v||v.length<2){res.style.display='none';return;}
+  clearTimeout(_pipeT);
+  _pipeT=setTimeout(async()=>{
+    const{data}=await sb.from('customers').select('id,company_name,status,store_type,all_time_spend').not('company_name','like','*%').ilike('company_name',`%${v}%`).limit(10);
+    if(data?.length){
+      res.style.display='block';
+      res.innerHTML=data.map(c=>`
+        <div style="padding:9px 14px;cursor:pointer;border-bottom:1px solid var(--border);transition:background .1s" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''" onmousedown="pipeSelect('${c.id}','${c.company_name.replace(/'/g,"\'")}')">
+          <div style="font-size:13px;font-weight:500">${x(c.company_name)}</div>
+          <div style="font-size:11px;color:var(--text3)">${x(c.store_type||'')} ${c.all_time_spend?'· £'+N2(c.all_time_spend):''}</div>
+        </div>`).join('');
+    } else {res.style.display='none';}
+  },200);
+}
+
+function pipeSelect(id,name){
+  document.getElementById('pipe-sel-id').value=id;
+  document.getElementById('pipe-search').value=name;
+  document.getElementById('pipe-results').style.display='none';
+}
+
+async function pipeAddSelected(){
+  const id=document.getElementById('pipe-sel-id').value;
+  const stage=document.getElementById('pipe-stage-sel').value;
+  const msg=document.getElementById('pipe-msg');
+  if(!id){msg.textContent='Please select a customer first';msg.style.color='var(--red)';setTimeout(()=>{msg.textContent='';msg.style.color='var(--green)';},2000);return;}
+  await sb.from('customers').update({pipeline_stage:stage}).eq('id',id);
+  document.getElementById('pipe-search').value='';
+  document.getElementById('pipe-sel-id').value='';
+  msg.textContent='Added!';
+  setTimeout(()=>{msg.textContent='';},1500);
+  renderPipeline();
+}
+
+async function moveStage(custId,stage,event){
+  event.stopPropagation();
+  await sb.from('customers').update({pipeline_stage:stage||null}).eq('id',custId);
+  renderPipeline();
+}
+
+// ═══ TASKS ═══
+async function renderTasks(){
+  let q=sb.from('tasks').select('*,customers(id,company_name)',{count:'exact'});
+  if(S.taskFilter!=='all')q=q.eq('status',S.taskFilter);
+  q=q.order('due_date').limit(200);
+  const{data,count}=await q;
+  setPage(`
+    <div class="toolbar">
+      <div class="pills">
+        ${['open','in_progress','done','all'].map(f=>`<button class="pill ${S.taskFilter===f?'on':''}" onclick="taskFilter('${f}')">${f.replace('_',' ')}</button>`).join('')}
+      </div>
+      <div class="spacer"></div>
+      <span style="font-size:12px;color:var(--text3)">${count||0} tasks</span>
+    </div>
+    <div class="table-wrap">
+      ${!data?.length?'<div class="no-results">No tasks found</div>':data.map(t=>`
+        <div class="task-item">
+          <div class="task-check ${t.status==='done'?'done':''}" onclick="toggleTask('${t.id}',this,null)"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
+          <div class="task-content" style="flex:1">
+            <div class="task-title ${t.status==='done'?'done':''}">${x(t.title)}</div>
+            <div class="task-meta">
+              ${t.customers?`<span class="task-co" onclick="go('customer-detail',{id:'${t.customers.id}'})">${x(t.customers.company_name)}</span>`:''}
+              ${t.due_date?`<span class="${past(t.due_date)&&t.status!=='done'?'task-overdue':''}">Due ${fd(t.due_date)}</span>`:''}
+              <span class="badge badge-${t.status}" style="font-size:10px">${t.status.replace('_',' ')}</span>
+            </div>
+          </div>
+        </div>`).join('')}
+    </div>
+  `);
+}
+function taskFilter(f){S.taskFilter=f;renderTasks();}
+
+// ═══ IMPORT CENTRE ═══
+let _csv={headers:[],rows:[],mapping:{}};
+const IMPORT_FIELDS=[
+  // Core customer fields
+  {key:'company_name',label:'Company Name',required:true},
+  {key:'kf_code',label:'KashFlow Code'},
+  {key:'status',label:'Status (active/prospect/dormant)'},
+  // Address
+  {key:'address_1',label:'Address Line 1'},
+  {key:'address_2',label:'Address Line 2'},
+  {key:'address_3',label:'Address Line 3'},
+  {key:'address_4',label:'Address Line 4'},
+  {key:'postcode',label:'Postcode'},
+  {key:'country_name',label:'Country'},
+  // Delivery address
+  {key:'delivery_address_1',label:'Delivery Address 1'},
+  {key:'delivery_address_2',label:'Delivery Address 2'},
+  {key:'delivery_address_3',label:'Delivery Address 3'},
+  {key:'delivery_address_4',label:'Delivery Address 4'},
+  {key:'delivery_postcode',label:'Delivery Postcode'},
+  // Contact details
+  {key:'phone',label:'Phone / Tel'},
+  {key:'mobile',label:'Mobile'},
+  {key:'website',label:'Website'},
+  {key:'vat_number',label:'VAT Number'},
+  {key:'eori',label:'EORI Number'},
+  // Financial
+  {key:'all_time_spend',label:'All-time Spend (Total Paid)'},
+  {key:'invoice_count',label:'Number of Invoices'},
+  {key:'discount',label:'Discount %'},
+  {key:'payment_terms',label:'Payment Terms'},
+  {key:'sales_code',label:'Sales Code'},
+  {key:'sales_code_name',label:'Sales Code Name'},
+  // Classification
+  {key:'source',label:'Source (Trade Show / Channel)'},
+  {key:'store_type',label:'Store Type'},
+  {key:'member_number',label:'Member Number'},
+  {key:'po_number',label:'PO Number Required'},
+  {key:'naked',label:'Naked (0/1)'},
+  {key:'new_non_ha',label:'New Non-HA Customer (0/1)'},
+  // Dates
+  {key:'last_order_date',label:'Last Invoiced / Last Order Date'},
+  {key:'first_invoiced',label:'First Invoiced Date'},
+  {key:'kf_created_date',label:'Customer Created Date'},
+  // Notes
+  {key:'notes',label:'Notes (CRM activity log)'},
+  {key:'customer_notes',label:'Customer Notes (internal)'},
+  // Contacts (written to contacts table)
+  {key:'_title',label:'Contact Title'},
+  {key:'_first_name',label:'Contact First Name'},
+  {key:'_last_name',label:'Contact Last Name'},
+  {key:'_email',label:'Contact Email'},
+  {key:'_phone',label:'Contact Phone'},
+  {key:'_mobile',label:'Contact Mobile'},
+  {key:'_name2',label:'Contact 2 Name'},
+  {key:'_email2',label:'Contact 2 Email'},
+  {key:'_name3',label:'Contact 3 Name'},
+  {key:'_email3',label:'Contact 3 Email'},
+  {key:'_name4',label:'Contact 4 Name'},
+  {key:'_email4',label:'Contact 4 Email'},
+];
+
+function renderImport(){
+  setPage(`
+    <div style="max-width:800px">
+      <div id="import-step-upload" class="import-step active">
+        <div style="font-size:11px;font-family:var(--mono);color:var(--text3);margin-bottom:10px">v2 — supports all KashFlow columns + multi-line notes</div>
+        <div class="import-zone" id="drop-zone" onclick="document.getElementById('csv-file').click()" ondragover="event.preventDefault();this.classList.add('drag')" ondragleave="this.classList.remove('drag')" ondrop="handleDrop(event)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          <p>Drop a CSV file here or click to browse</p>
+          <small>Supports standard CSV with header row</small>
+        </div>
+        <input type="file" id="csv-file" accept=".csv" style="display:none" onchange="handleCsvFile(this.files[0])"/>
+        <div id="upload-err" class="inline-err"></div>
+
+        <div style="margin-top:20px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px">
+          <div style="font-size:13px;font-weight:600;margin-bottom:8px">Import History</div>
+          <div id="import-history">Loading…</div>
+        </div>
+      </div>
+
+      <div id="import-step-map" class="import-step">
+        <div style="margin-bottom:16px;display:flex;align-items:center;justify-content:space-between">
+          <div><div style="font-size:15px;font-weight:700">Map Columns</div><div style="font-size:13px;color:var(--text2);margin-top:2px">Match your CSV columns to CRM fields</div></div>
+          <button class="btn" onclick="importReset()">← Start over</button>
+        </div>
+        <div class="table-wrap" style="margin-bottom:16px"><table class="mapping-table" id="mapping-table"></table></div>
+        <div style="margin-bottom:16px">
+          <div style="font-size:13px;font-weight:600;margin-bottom:8px">Preview (first 5 rows)</div>
+          <div style="overflow-x:auto"><table class="preview-table" id="preview-table"></table></div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn" onclick="importReset()">Cancel</button>
+          <button class="btn btn-primary" onclick="startImport()">Import <span id="import-row-count"></span> rows</button>
+        </div>
+      </div>
+
+      <div id="import-step-progress" class="import-step">
+        <div class="import-progress">
+          <div style="font-size:15px;font-weight:700;margin-bottom:4px" id="prog-title">Importing…</div>
+          <div style="font-size:13px;color:var(--text2)" id="prog-sub">Preparing…</div>
+          <div class="progress-bar-wrap"><div class="progress-bar" id="prog-bar" style="width:0%"></div></div>
+          <div id="import-results"></div>
+          <div id="import-done-btns" style="margin-top:16px;display:none;gap:8px;justify-content:center;display:none">
+            <button class="btn" onclick="importReset()">Import another file</button>
+            <button class="btn btn-primary" onclick="go('customers')">View Customers</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `);
+  loadImportHistory();
+}
+
+async function loadImportHistory(){
+  const{data}=await sb.from('import_batches').select('*').order('created_at',{ascending:false}).limit(10);
+  const el=document.getElementById('import-history');
+  if(!el)return;
+  if(!data?.length){el.innerHTML='<div style="font-size:13px;color:var(--text3)">No imports yet</div>';return;}
+  el.innerHTML=`<table style="width:100%;border-collapse:collapse;font-size:12px">
+    <thead><tr><th style="padding:6px 10px;text-align:left;color:var(--text2);border-bottom:1px solid var(--border)">File</th><th style="padding:6px 10px;text-align:left;color:var(--text2);border-bottom:1px solid var(--border)">Date</th><th style="padding:6px 10px;text-align:right;color:var(--text2);border-bottom:1px solid var(--border)">Created</th><th style="padding:6px 10px;text-align:right;color:var(--text2);border-bottom:1px solid var(--border)">Updated</th><th style="padding:6px 10px;text-align:right;color:var(--text2);border-bottom:1px solid var(--border)">Errors</th></tr></thead>
+    <tbody>${data.map(b=>`<tr>
+      <td style="padding:6px 10px;border-bottom:1px solid var(--border);color:var(--text2)">${x(b.filename||b.source)}</td>
+      <td style="padding:6px 10px;border-bottom:1px solid var(--border);color:var(--text3);font-family:var(--mono)">${fd(b.created_at)}</td>
+      <td style="padding:6px 10px;border-bottom:1px solid var(--border);text-align:right;color:var(--green);font-weight:600">${b.created_count||0}</td>
+      <td style="padding:6px 10px;border-bottom:1px solid var(--border);text-align:right;color:var(--blue)">${b.updated_count||0}</td>
+      <td style="padding:6px 10px;border-bottom:1px solid var(--border);text-align:right;color:${(b.error_count||0)>0?'var(--red)':'var(--text3)'}">${b.error_count||0}</td>
+    </tr>`).join('')}</tbody>
+  </table>`;
+}
+
+function handleDrop(e){
+  e.preventDefault();
+  document.getElementById('drop-zone').classList.remove('drag');
+  const f=e.dataTransfer.files[0];
+  if(f&&f.name.endsWith('.csv'))handleCsvFile(f);
+  else document.getElementById('upload-err').textContent='Please drop a CSV file.';
+}
+
+function handleCsvFile(file){
+  if(!file)return;
+  const reader=new FileReader();
+  reader.onload=e=>{
+    try{
+      const parsed=parseCSV(e.target.result);
+      if(parsed.rows.length===0){document.getElementById('upload-err').textContent='No data rows found in CSV.';return;}
+      _csv={headers:parsed.headers,rows:parsed.rows,filename:file.name,mapping:{}};
+      // Auto-map columns by guessing
+      parsed.headers.forEach(h=>{
+        const hl=h.toLowerCase().trim();
+        const hr=hl.replace(/[^a-z0-9]/g,'');
+        // KashFlow-specific mappings
+        if(hl==='code') _csv.mapping[h]='kf_code';
+        else if(hl==='name'||hl==='company name') _csv.mapping[h]='company_name';
+        else if(hl==='full contact name') return; // skip
+        else if(hl==='contact title') _csv.mapping[h]='_title';
+        else if(hl==='contact first name') _csv.mapping[h]='_first_name';
+        else if(hl==='contact last name') _csv.mapping[h]='_last_name';
+        else if(hl==='address 1') _csv.mapping[h]='address_1';
+        else if(hl==='address 2') _csv.mapping[h]='address_2';
+        else if(hl==='address 3') _csv.mapping[h]='address_3';
+        else if(hl==='address 4') _csv.mapping[h]='address_4';
+        else if(hl==='postcode') _csv.mapping[h]='postcode';
+        else if(hl==='country') _csv.mapping[h]='country_name';
+        else if(hl==='tel') _csv.mapping[h]='phone';
+        else if(hl==='fax') return; // skip fax
+        else if(hl==='mobile') _csv.mapping[h]='mobile';
+        else if(hl==='web') _csv.mapping[h]='website';
+        else if(hl==='email') _csv.mapping[h]='_email';
+        else if(hl==='vat num.'||hl==='vat number'||hr==='vatnum') _csv.mapping[h]='vat_number';
+        else if(hl==='total paid') _csv.mapping[h]='all_time_spend';
+        else if(hl==='notes') _csv.mapping[h]='notes';
+        else if(hl==='customer notes') _csv.mapping[h]='customer_notes';
+        else if(hl==='default sales code') _csv.mapping[h]='sales_code';
+        else if(hl==='default sales code name') _csv.mapping[h]='sales_code_name';
+        else if(hl==='no. of invoices') _csv.mapping[h]='invoice_count';
+        else if(hl==='source') _csv.mapping[h]='source';
+        else if(hl==='po number') _csv.mapping[h]='po_number';
+        else if(hl==='email 2') _csv.mapping[h]='_email2';
+        else if(hl==='email 3') _csv.mapping[h]='_email3';
+        else if(hl==='email 4') _csv.mapping[h]='_email4';
+        else if(hl==='name 2') _csv.mapping[h]='_name2';
+        else if(hl==='name 3') _csv.mapping[h]='_name3';
+        else if(hl==='name 4') _csv.mapping[h]='_name4';
+        else if(hl==='member no.') _csv.mapping[h]='member_number';
+        else if(hl==='eori') _csv.mapping[h]='eori';
+        else if(hl==='store type') _csv.mapping[h]='store_type';
+        else if(hl==='new non ha customer') _csv.mapping[h]='new_non_ha';
+        else if(hl==='naked') _csv.mapping[h]='naked';
+        else if(hl==='payment terms') _csv.mapping[h]='payment_terms';
+        else if(hl==='discount') _csv.mapping[h]='discount';
+        else if(hl==='delivery address 1') _csv.mapping[h]='delivery_address_1';
+        else if(hl==='delivery address 2') _csv.mapping[h]='delivery_address_2';
+        else if(hl==='delivery address 3') _csv.mapping[h]='delivery_address_3';
+        else if(hl==='delivery address 4') _csv.mapping[h]='delivery_address_4';
+        else if(hl==='delivery postcode') _csv.mapping[h]='delivery_postcode';
+        else if(hl==='customer created date') _csv.mapping[h]='kf_created_date';
+        else if(hl==='first invoiced') _csv.mapping[h]='first_invoiced';
+        else if(hl==='last invoiced') _csv.mapping[h]='last_order_date';
+        // Generic fallbacks
+        else if(hl.includes('company')) _csv.mapping[h]='company_name';
+        else if(hl.includes('kashflow')||hl.includes('kf code')) _csv.mapping[h]='kf_code';
+      });
+      showMappingStep();
+    }catch(err){document.getElementById('upload-err').textContent='Error reading CSV: '+err.message;}
+  };
+  reader.readAsText(file);
+}
+
+function parseCSV(text){
+  // Robust parser: handles quoted fields containing newlines, commas, quotes
+  text=text.replace(/\r\n/g,'\n').replace(/\r/g,'\n');
+  const records=[];let cur='';let inQ=false;
+  for(let i=0;i<text.length;i++){
+    const ch=text[i];
+    if(ch==='"'){
+      if(inQ&&text[i+1]==='"'){cur+='"';i++;}
+      else inQ=!inQ;
+    } else if(ch==='\n'&&!inQ){
+      records.push(cur);cur='';
+    } else {
+      cur+=ch;
+    }
+  }
+  if(cur.trim())records.push(cur);
+  if(!records.length)return{headers:[],rows:[]};
+  const headers=splitRecord(records[0]);
+  const rows=[];
+  for(let i=1;i<records.length;i++){
+    if(!records[i].trim())continue;
+    const vals=splitRecord(records[i]);
+    const row={};headers.forEach((h,j)=>{row[h]=(vals[j]||'').trim();});
+    rows.push(row);
+  }
+  return{headers,rows};
+}
+
+function splitRecord(rec){
+  // Split a single (possibly multi-line) record into fields
+  const fields=[];let cur='';let inQ=false;
+  for(let i=0;i<rec.length;i++){
+    const ch=rec[i];
+    if(ch==='"'){if(inQ&&rec[i+1]==='"'){cur+='"';i++;}else inQ=!inQ;}
+    else if(ch===','&&!inQ){fields.push(cur);cur='';}
+    else cur+=ch;
+  }
+  fields.push(cur);return fields;
+}
+
+function showMappingStep(){
+  document.getElementById('import-step-upload').classList.remove('active');
+  document.getElementById('import-step-map').classList.add('active');
+  document.getElementById('import-row-count').textContent=_csv.rows.length.toLocaleString();
+  renderMappingTable();
+  renderPreviewTable();
+}
+
+function renderMappingTable(){
+  const fieldOpts=`<option value="">— Skip —</option>${IMPORT_FIELDS.map(f=>`<option value="${f.key}">${f.label}${f.required?' *':''}</option>`).join('')}`;
+  document.getElementById('mapping-table').innerHTML=`
+    <thead><tr><th>CSV Column</th><th>Sample Values</th><th>Maps To</th></tr></thead>
+    <tbody>${_csv.headers.map(h=>`<tr>
+      <td style="font-family:var(--mono);font-size:12px">${x(h)}</td>
+      <td style="color:var(--text2);font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${x(_csv.rows.slice(0,3).map(r=>r[h]).filter(Boolean).join(', '))}</td>
+      <td><select class="f-input" style="padding:4px 8px;font-size:12px" onchange="mapCol('${h.replace(/'/g,"\\'")}',this.value)">${fieldOpts.replace(`value="${_csv.mapping[h]||''}"`,`value="${_csv.mapping[h]||''}" selected`)}</select></td>
+    </tr>`).join('')}</tbody>
+  `;
+  // Set existing mapping
+  document.querySelectorAll('#mapping-table select').forEach((sel,i)=>{
+    const h=_csv.headers[i];
+    if(_csv.mapping[h])sel.value=_csv.mapping[h];
+  });
+}
+
+function mapCol(h,val){_csv.mapping[h]=val;renderPreviewTable();}
+
+function renderPreviewTable(){
+  const mapped=_csv.headers.filter(h=>_csv.mapping[h]);
+  const preview=_csv.rows.slice(0,5);
+  document.getElementById('preview-table').innerHTML=`
+    <thead><tr>${mapped.map(h=>`<th>${x(IMPORT_FIELDS.find(f=>f.key===_csv.mapping[h])?.label||_csv.mapping[h])}</th>`).join('')}</tr></thead>
+    <tbody>${preview.map(row=>`<tr>${mapped.map(h=>`<td title="${x(row[h]||'')}">${x(row[h]||'')}</td>`).join('')}</tr>`).join('')}</tbody>
+  `;
+}
+
+async function startImport(){
+  const mapping=_csv.mapping;
+  const coNameCol=Object.keys(mapping).find(h=>mapping[h]==='company_name');
+  if(!coNameCol){alert('Please map a column to Company Name');return;}
+  showImportProgress();
+  const batchId=(await sb.from('import_batches').insert({source:'csv',filename:_csv.filename||'upload.csv',row_count:_csv.rows.length,status:'running',created_count:0,updated_count:0,error_count:0}).select().single()).data?.id;
+  let created=0,updated=0,errors=0;const errLog=[];
+  const rows=_csv.rows;
+  for(let i=0;i<rows.length;i++){
+    const row=rows[i];
+    const pct=Math.round((i+1)/rows.length*100);
+    const pb=document.getElementById('prog-bar');if(pb)pb.style.width=pct+'%';
+    const ps=document.getElementById('prog-sub');if(ps)ps.textContent=`Row ${i+1} of ${rows.length}…`;
+    try{
+      const coName=(row[coNameCol]||'').trim();if(!coName){errors++;errLog.push(`Row ${i+2}: blank company name`);continue;}
+      const kfCol=Object.keys(mapping).find(h=>mapping[h]==='kf_code');
+      const kfCode=kfCol?row[kfCol]?.trim()||null:null;
+      // Build customer payload
+      const payload={company_name:coName};
+      // Date parser: handles DD/MM/YYYY and YYYY-MM-DD
+      const parseImportDate=v=>{
+        if(!v)return null;
+        v=v.trim();
+        if(!v)return null;
+        // Try DD/MM/YYYY
+        const dm=/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(v);
+        if(dm)return`${dm[3]}-${dm[2].padStart(2,'0')}-${dm[1].padStart(2,'0')}`;
+        // Try YYYY-MM-DD
+        if(/^\d{4}-\d{2}-\d{2}$/.test(v))return v;
+        // Try JS Date parse
+        try{const d=new Date(v);if(!isNaN(d))return d.toISOString().split('T')[0];}catch{}
+        return null;
+      };
+      const dateFields=['last_order_date','first_invoiced','kf_created_date'];
+      const numFields=['all_time_spend','invoice_count','discount'];
+      const boolFields=['naked','new_non_ha'];
+      Object.keys(mapping).forEach(h=>{
+        const fk=mapping[h];if(!fk||fk.startsWith('_'))return;
+        let v=row[h]?.trim()||null;
+        if(!v){payload[fk]=null;return;}
+        if(numFields.includes(fk))v=parseFloat(v.replace(/[^0-9.-]/g,''))||null;
+        else if(dateFields.includes(fk))v=parseImportDate(v);
+        else if(boolFields.includes(fk))v=['1','yes','true','y'].includes(v.toLowerCase());
+        else if(fk==='status'){
+          v=v.toLowerCase();
+          if(!['active','prospect','dormant'].includes(v))v='active';
+        }
+        payload[fk]=v;
+      });
+      // Auto-set status from Last Invoiced if status not explicitly mapped
+      if(!Object.values(mapping).includes('status')&&payload.last_order_date){
+        const cutoff=new Date(Date.now()-365*864e5).toISOString().split('T')[0];
+        payload.status=payload.last_order_date>=cutoff?'active':'dormant';
+      } else if(!Object.values(mapping).includes('status')&&!payload.last_order_date){
+        payload.status='prospect';
+      }
+      // Dedup: check by kf_code or company_name
+      let existing=null;
+      if(kfCode){const{data}=await sb.from('customers').select('id').eq('kf_code',kfCode).maybeSingle();existing=data;}
+      if(!existing){const{data}=await sb.from('customers').select('id').ilike('company_name',coName).maybeSingle();existing=data;}
+      let custId;
+      if(existing){
+        await sb.from('customers').update(payload).eq('id',existing.id);
+        custId=existing.id;updated++;
+      }else{
+        const{data,error}=await sb.from('customers').insert(payload).select().single();
+        if(error)throw error;
+        custId=data.id;created++;
+      }
+      // Handle contact columns - primary + extras
+      const gc=fk=>{ const col=Object.keys(mapping).find(h=>mapping[h]===fk); return col?row[col]?.trim()||null:null; };
+      const pEmail=gc('_email'),pFirst=gc('_first_name'),pLast=gc('_last_name');
+      const pTitle=gc('_title'),pPhone=gc('_phone'),pMobile=gc('_mobile');
+      if(pEmail||pFirst||pLast){
+        const{data:existCt}=await sb.from('contacts').select('id').eq('customer_id',custId).eq('is_primary',true).maybeSingle();
+        if(!existCt)await sb.from('contacts').insert({customer_id:custId,first_name:pFirst,last_name:pLast,email:pEmail,phone:pPhone||gc('phone'),role:pTitle,is_primary:true});
+      }
+      // Additional contacts (Name 2/3/4 + Email 2/3/4)
+      for(const n of ['2','3','4']){
+        const nm=gc('_name'+n),em=gc('_email'+n);
+        if(nm||em){
+          const parts=(nm||'').split(' ');
+          await sb.from('contacts').insert({customer_id:custId,first_name:parts[0]||null,last_name:parts.slice(1).join(' ')||null,email:em,is_primary:false}).select();
+        }
+      }
+    }catch(err){errors++;errLog.push(`Row ${i+2}: ${err.message}`);}
+  }
+  // Update batch
+  if(batchId)await sb.from('import_batches').update({status:'complete',created_count:created,updated_count:updated,error_count:errors,error_log:errLog.join('\n')||null}).eq('id',batchId);
+  // Show results
+  const pt=document.getElementById('prog-title');if(pt)pt.textContent='Import Complete';
+  const ps2=document.getElementById('prog-sub');if(ps2)ps2.textContent=`Processed ${rows.length} rows`;
+  const ir=document.getElementById('import-results');
+  if(ir)ir.innerHTML=`<div class="import-results">
+    <div class="result-card"><div class="result-n" style="color:var(--green)">${created}</div><div class="result-l">Created</div></div>
+    <div class="result-card"><div class="result-n" style="color:var(--blue)">${updated}</div><div class="result-l">Updated</div></div>
+    <div class="result-card"><div class="result-n" style="color:${errors>0?'var(--red)':'var(--text3)'}">${errors}</div><div class="result-l">Errors</div></div>
+  </div>${errors>0?`<div style="margin-top:12px;background:var(--red-bg);border-radius:var(--r);padding:10px 14px;font-size:11px;font-family:var(--mono);color:var(--red);max-height:120px;overflow-y:auto">${errLog.slice(0,20).map(e=>x(e)).join('<br>')}</div>`:''}`;
+  const idb=document.getElementById('import-done-btns');if(idb){idb.style.display='flex';}
+  refreshCounts();
+}
+
+function showImportProgress(){
+  document.getElementById('import-step-map').classList.remove('active');
+  document.getElementById('import-step-progress').classList.add('active');
+}
+
+function importReset(){
+  _csv={headers:[],rows:[],mapping:{}};
+  document.querySelectorAll('.import-step').forEach(el=>el.classList.remove('active'));
+  document.getElementById('import-step-upload').classList.add('active');
+  document.getElementById('csv-file').value='';
+  loadImportHistory();
+}
+
+// ═══ MAILERLITE SYNC ═══
+async function syncMailerLite(custId){
+  if(!S.mlKey){alert('Please add your MailerLite API key in Settings first.');return;}
+  const st=document.getElementById('ml-status');
+  if(st)st.innerHTML='<div class="ml-syncing"><span class="spinner"></span> Syncing with MailerLite…</div>';
+  // Get contacts for this customer
+  const{data:contacts}=await sb.from('contacts').select('id,email').eq('customer_id',custId).not('email','is',null);
+  if(!contacts?.length){
+    if(st)st.innerHTML='<div style="font-size:12px;color:var(--amber);padding:6px 0">No contacts with email addresses — nothing to sync.</div>';
+    setTimeout(()=>{if(st)st.innerHTML='';},4000);return;
+  }
+  let synced=0,errors=0;
+  for(const contact of contacts){
+    if(!contact.email)continue;
+    try{
+      const res=await fetch(`https://connect.mailerlite.com/api/subscribers/${encodeURIComponent(contact.email)}`,{headers:{'Authorization':`Bearer ${S.mlKey}`,'Content-Type':'application/json'}});
+      if(!res.ok)continue;
+      const sub=await res.json();
+      const subId=sub.data?.id;
+      if(!subId)continue;
+      // Update mailerlite_id on customer
+      await sb.from('customers').update({mailerlite_id:subId}).eq('id',custId);
+      // Update mailerlite_trade_status on contact
+      await sb.from('contacts').update({mailerlite_trade_status:sub.data?.status}).eq('id',contact.id);
+      // Get subscriber activity
+      const actRes=await fetch(`https://connect.mailerlite.com/api/subscribers/${subId}/activity?limit=50`,{headers:{'Authorization':`Bearer ${S.mlKey}`}});
+      if(actRes.ok){
+        const actData=await actRes.json();
+        const activities=actData.data||[];
+        for(const act of activities){
+          const eType=mlActivityToEventType(act.type);
+          const occurred=act.updated_at||act.created_at;
+          // Check if already logged
+          const{data:existing}=await sb.from('events').select('id').eq('customer_id',custId).eq('contact_id',contact.id).eq('event_type',eType).eq('occurred_at',occurred?new Date(occurred).toISOString():null).maybeSingle();
+          if(!existing&&eType){
+            await sb.from('events').insert({
+              customer_id:custId,contact_id:contact.id,
+              event_type:eType,source:'mailerlite',
+              title:mlActivityTitle(act),
+              occurred_at:occurred?new Date(occurred).toISOString():new Date().toISOString(),
+              created_by:'mailerlite-sync',
+              metadata:{mailerlite_activity_id:act.id,campaign_id:act.campaign?.id,campaign_name:act.campaign?.name}
+            });
+          }
+        }synced++;
+      }
+    }catch(e){errors++;}
+  }
+  if(st)st.innerHTML=`<div style="font-size:12px;color:var(--green);padding:6px 0">✓ MailerLite sync complete — ${synced} contact(s) synced</div>`;
+  setTimeout(()=>{if(st)st.innerHTML='';go('customer-detail',{id:custId});},2000);
+}
+
+function mlActivityToEventType(type){
+  const map={sent:'email_sent',opened:'email_opened',clicked:'email_clicked',unsubscribed:'unsubscribed',bounced:'email_bounced',spam:'marked_spam'};
+  return map[type]||type||'email';
+}
+function mlActivityTitle(act){
+  const map={sent:'Email sent',opened:'Email opened',clicked:'Link clicked',unsubscribed:'Unsubscribed',bounced:'Email bounced',spam:'Marked as spam'};
+  const base=map[act.type]||act.type||'Email activity';
+  return act.campaign?.name?`${base}: ${act.campaign.name}`:base;
+}
+
+// ═══ SETTINGS ═══
+function renderSettings(){
+  setPage(`
+    <div>
+      <div class="settings-card">
+        <div class="settings-head">MailerLite Integration</div>
+        <div class="settings-body">
+          <div class="settings-note">Your API key is stored in the database and used to sync subscriber activity into customer timelines. Use a MailerLite API token (Settings → Integrations → API in MailerLite).</div>
+          <label class="f-label">MailerLite API Key</label>
+          <input class="f-input" type="password" id="ml-key-input" value="${x(S.mlKey)}" placeholder="Paste your MailerLite API token…"/>
+          <div style="margin-top:12px;display:flex;gap:8px;align-items:center">
+            <button class="btn btn-primary btn-sm" onclick="saveSettings()">Save Key</button>
+            ${S.mlKey?`<button class="btn btn-sm" onclick="testMlKey()">Test Connection</button>`:''}
+            <span id="settings-msg" style="font-size:12px;color:var(--green)"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-card">
+        <div class="settings-head">About This CRM</div>
+        <div class="settings-body" style="font-size:13px;color:var(--text2);line-height:1.8">
+          <p><strong>Brainbox CRM</strong> — built on Supabase + GitHub Pages</p>
+          <p>Customers: connects to <code style="font-family:var(--mono);background:var(--bg);padding:1px 5px;border-radius:3px">ypfwecopdsielnouxwzv</code></p>
+          <p style="margin-top:8px">Phases: Phase 1 (Core) ✓ · Phase 2 (Import) ✓ · Phase 3 (MailerLite) ✓ · Phase 4 (Pipeline) ✓</p>
+          <p>Coming: Phase 5 (Advanced reporting, saved views, RBAC enforcement)</p>
+        </div>
+      </div>
+    </div>
+  `);
+}
+
+async function saveSettings(){
+  const key=document.getElementById('ml-key-input').value.trim();
+  await sb.from('app_settings').upsert({key:'mailerlite_api_key',value:key,updated_at:new Date().toISOString()});
+  S.mlKey=key;
+  const msg=document.getElementById('settings-msg');
+  if(msg){msg.textContent='Saved!';setTimeout(()=>{msg.textContent='';},2000);}
+}
+
+async function testMlKey(){
+  const key=document.getElementById('ml-key-input').value.trim();
+  const msg=document.getElementById('settings-msg');
+  if(msg)msg.textContent='Testing…';
+  try{
+    const res=await fetch('https://connect.mailerlite.com/api/subscribers?limit=1',{headers:{'Authorization':`Bearer ${key}`}});
+    if(res.ok){if(msg)msg.textContent='✓ Connected!';}
+    else{if(msg){msg.textContent='Connection failed (check key)';msg.style.color='var(--red)';}}
+  }catch(e){if(msg){msg.textContent='Network error';msg.style.color='var(--red)';}}
+  setTimeout(()=>{if(msg){msg.textContent='';msg.style.color='var(--green)';}},3000);
+}
+
+// ═══ MODALS ═══
+function openModal(title,body,foot,large=false){
+  document.getElementById('modal-title').textContent=title;
+  document.getElementById('modal-body').innerHTML=body;
+  document.getElementById('modal-foot').innerHTML=foot;
+  document.getElementById('modal-box').className='modal'+(large?' modal-lg':'');
+  document.getElementById('modal-overlay').hidden=false;
+}
+function closeModal(){document.getElementById('modal-overlay').hidden=true;}
+
+function showLogEvent(custId){
+  const opts=Object.values(S.etypes).length
+    ?Object.values(S.etypes).map(et=>`<option value="${x(et.event_type)}">${x(et.label)}</option>`).join('')
+    :'<option value="note">Note</option><option value="call">Call</option><option value="email">Email</option><option value="meeting">Meeting</option>';
+  const now=new Date();const loc=new Date(now-now.getTimezoneOffset()*60000).toISOString().slice(0,16);
+  openModal('Log Activity',`
+    <div><label class="f-label">Event Type</label><select class="f-input" id="le-type">${opts}</select></div>
+    <div style="margin-top:12px"><label class="f-label">Title / Subject</label><input class="f-input" id="le-title" type="text" placeholder="Brief summary…"/></div>
+    <div style="margin-top:12px"><label class="f-label">Notes</label><textarea class="f-input" id="le-body" rows="4" placeholder="Details, outcomes, next steps…"></textarea></div>
+    <div style="margin-top:12px"><label class="f-label">Date & Time</label><input class="f-input" id="le-date" type="datetime-local" value="${loc}"/></div>
+    <div id="le-err" class="inline-err"></div>`,
+    `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveEvent('${custId}')">Save</button>`);
+}
+
+async function saveEvent(custId){
+  const title=document.getElementById('le-title').value.trim();
+  const body=document.getElementById('le-body').value.trim();
+  const err=document.getElementById('le-err');
+  if(!title&&!body){err.textContent='Please add a title or notes.';return;}
+  err.textContent='';
+  const{error}=await sb.from('events').insert({
+    customer_id:custId,event_type:document.getElementById('le-type').value,
+    title:title||null,body:body||null,
+    occurred_at:new Date(document.getElementById('le-date').value||new Date()).toISOString(),
+    source:'manual',created_by:S.user.email
+  });
+  if(error){err.textContent=error.message;return;}
+  closeModal();go('customer-detail',{id:custId});
+}
+
+async function showAddEditCustomer(id){
+  let c=null;
+  if(id){const{data}=await sb.from('customers').select('*').eq('id',id).single();c=data;}
+  openModal(c?'Edit Customer':'Add Customer',`
+    <div class="form-row">
+      <div><label class="f-label">Company Name *</label><input class="f-input" id="ac-name" value="${x(c?.company_name||'')}"/></div>
+      <div><label class="f-label">KashFlow Code</label><input class="f-input" id="ac-kf" value="${x(c?.kf_code||'')}"/></div>
+    </div>
+    <div class="form-row" style="margin-top:12px">
+      <div><label class="f-label">Status</label><select class="f-input" id="ac-status">
+        ${['active','prospect','dormant'].map(s=>`<option value="${s}" ${c?.status===s?'selected':''}>${s.charAt(0).toUpperCase()+s.slice(1)}</option>`).join('')}
+      </select></div>
+      <div><label class="f-label">Country</label><input class="f-input" id="ac-country" value="${x(c?.country_name||'')}"/></div>
+    </div>
+    <div class="form-row" style="margin-top:12px">
+      <div><label class="f-label">Pipeline Stage</label><select class="f-input" id="ac-pipe">
+        <option value="">— None —</option>
+        ${PIPELINE_STAGES.map(s=>`<option value="${s}" ${c?.pipeline_stage===s?'selected':''}>${s}</option>`).join('')}
+      </select></div>
+      <div><label class="f-label">All-time Spend (£)</label><input class="f-input" type="number" id="ac-spend" value="${c?.all_time_spend||''}"/></div>
+    </div>
+    <div class="form-row" style="margin-top:12px">
+      <div><label class="f-label">Phone</label><input class="f-input" id="ac-phone" value="${x(c?.phone||'')}"/></div>
+      <div><label class="f-label">Mobile</label><input class="f-input" id="ac-mobile" value="${x(c?.mobile||'')}"/></div>
+    </div>
+    <div class="form-row" style="margin-top:12px">
+      <div><label class="f-label">Source</label><input class="f-input" id="ac-source" value="${x(c?.source||'')}" placeholder="e.g. Autumn Fair 2024"/></div>
+      <div><label class="f-label">Store Type</label><input class="f-input" id="ac-store-type" value="${x(c?.store_type||'')}" placeholder="e.g. Independent"/></div>
+    </div>
+    <div style="margin-top:12px"><label class="f-label">Address</label><input class="f-input" id="ac-addr1" value="${x(c?.address_1||'')}" placeholder="Line 1"/></div>
+    <div class="form-row" style="margin-top:6px">
+      <div><input class="f-input" id="ac-addr2" value="${x(c?.address_2||'')}" placeholder="Line 2"/></div>
+      <div><input class="f-input" id="ac-postcode" value="${x(c?.postcode||'')}" placeholder="Postcode"/></div>
+    </div>
+    <div style="margin-top:12px"><label class="f-label">Website</label><input class="f-input" id="ac-website" type="url" value="${x(c?.website||'')}"/></div>
+    <div class="form-row" style="margin-top:12px">
+      <div><label class="f-label">Payment Terms (days)</label><input class="f-input" id="ac-payment" value="${x(c?.payment_terms||'')}"/></div>
+      <div><label class="f-label">Discount %</label><input class="f-input" type="number" id="ac-discount" value="${c?.discount||''}"/></div>
+    </div>
+    <div style="margin-top:12px"><label class="f-label">Notes</label><textarea class="f-input" id="ac-notes" rows="3">${x(c?.notes||'')}</textarea></div>
+    <div id="ac-err" class="inline-err"></div>`,
+    `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveCustomer('${id||''}')">Save</button>`,true);
+}
+
+async function saveCustomer(id){
+  const name=document.getElementById('ac-name').value.trim();
+  const err=document.getElementById('ac-err');
+  if(!name){err.textContent='Company name is required.';return;}
+  err.textContent='';
+  const gv=id=>document.getElementById(id)?.value?.trim()||null;
+  const payload={company_name:name,kf_code:gv('ac-kf'),status:document.getElementById('ac-status').value,country_name:gv('ac-country'),notes:gv('ac-notes'),pipeline_stage:document.getElementById('ac-pipe').value||null,phone:gv('ac-phone'),mobile:gv('ac-mobile'),source:gv('ac-source'),store_type:gv('ac-store-type'),address_1:gv('ac-addr1'),address_2:gv('ac-addr2'),postcode:gv('ac-postcode'),website:gv('ac-website'),payment_terms:gv('ac-payment')};
+  const spend=document.getElementById('ac-spend')?.value;if(spend)payload.all_time_spend=parseFloat(spend);
+  const disc=document.getElementById('ac-discount')?.value;if(disc)payload.discount=parseFloat(disc);
+  const{error}=id?await sb.from('customers').update(payload).eq('id',id):await sb.from('customers').insert(payload);
+  if(error){err.textContent=error.message;return;}
+  closeModal();refreshCounts();
+  if(id)go('customer-detail',{id});else go('customers');
+}
+
+function showAddContact(custId){
+  openModal('Add Contact',`
+    <div class="form-row">
+      <div><label class="f-label">First Name</label><input class="f-input" id="ct-first" type="text"/></div>
+      <div><label class="f-label">Last Name</label><input class="f-input" id="ct-last" type="text"/></div>
+    </div>
+    <div style="margin-top:12px"><label class="f-label">Email</label><input class="f-input" id="ct-email" type="email"/></div>
+    <div class="form-row" style="margin-top:12px">
+      <div><label class="f-label">Phone</label><input class="f-input" id="ct-phone" type="tel"/></div>
+      <div><label class="f-label">Role / Title</label><input class="f-input" id="ct-role" type="text"/></div>
+    </div>
+    <div style="margin-top:12px"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px"><input type="checkbox" id="ct-primary" style="width:14px;height:14px"/> Primary contact</label></div>
+    <div id="ct-err" class="inline-err"></div>`,
+    `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveContact('${custId}')">Add Contact</button>`);
+}
+
+async function saveContact(custId){
+  const first=document.getElementById('ct-first').value.trim(),last=document.getElementById('ct-last').value.trim();
+  const err=document.getElementById('ct-err');
+  if(!first&&!last){err.textContent='Please enter a name.';return;}
+  err.textContent='';
+  const{error}=await sb.from('contacts').insert({customer_id:custId,first_name:first||null,last_name:last||null,email:document.getElementById('ct-email').value.trim()||null,phone:document.getElementById('ct-phone').value.trim()||null,role:document.getElementById('ct-role').value.trim()||null,is_primary:document.getElementById('ct-primary').checked});
+  if(error){err.textContent=error.message;return;}
+  closeModal();go('customer-detail',{id:custId});
+}
+
+function showAddTask(custId){
+  const tom=new Date();tom.setDate(tom.getDate()+1);const ts=tom.toISOString().split('T')[0];
+  openModal('Add Task',`
+    <div><label class="f-label">Task Title *</label><input class="f-input" id="tk-title" type="text" placeholder="e.g. Follow up on brochure request"/></div>
+    ${!custId?`<div style="margin-top:12px"><label class="f-label">Customer (optional)</label>
+      <input class="f-input" id="tk-co-s" type="text" placeholder="Search…" oninput="tkCoSearch(this.value)" autocomplete="off"/>
+      <div id="tk-co-res" style="border:1px solid var(--border);border-radius:var(--r);margin-top:3px;max-height:150px;overflow-y:auto;display:none;background:var(--surface);position:relative;z-index:10"></div>
+      <input type="hidden" id="tk-coid" value=""/></div>`:`<input type="hidden" id="tk-coid" value="${custId}"/>`}
+    <div class="form-row" style="margin-top:12px">
+      <div><label class="f-label">Due Date</label><input class="f-input" id="tk-due" type="date" value="${ts}"/></div>
+      <div><label class="f-label">Status</label><select class="f-input" id="tk-status"><option value="open">Open</option><option value="in_progress">In Progress</option></select></div>
+    </div>
+    <div id="tk-err" class="inline-err"></div>`,
+    `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveTask('${custId||''}')">Add Task</button>`);
+}
+
+let _tkt;
+async function tkCoSearch(v){
+  const res=document.getElementById('tk-co-res');if(!v||v.length<2){res.style.display='none';return;}
+  clearTimeout(_tkt);_tkt=setTimeout(async()=>{
+    const{data}=await sb.from('customers').select('id,company_name').ilike('company_name',`%${v}%`).limit(8);
+    if(data?.length){res.style.display='block';res.innerHTML=data.map(c=>`<div style="padding:8px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border)" onmousedown="tkCoSel('${c.id}','${c.company_name.replace(/'/g,"\\'")}')">${x(c.company_name)}</div>`).join('');}
+    else res.style.display='none';
+  },200);
+}
+function tkCoSel(id,name){document.getElementById('tk-coid').value=id;document.getElementById('tk-co-s').value=name;document.getElementById('tk-co-res').style.display='none';}
+
+async function saveTask(defCustId){
+  const title=document.getElementById('tk-title').value.trim();
+  const err=document.getElementById('tk-err');
+  if(!title){err.textContent='Task title is required.';return;}
+  err.textContent='';
+  const custId=document.getElementById('tk-coid').value||defCustId||null;
+  const{error}=await sb.from('tasks').insert({title,customer_id:custId||null,due_date:document.getElementById('tk-due').value||null,status:document.getElementById('tk-status').value,assigned_to:S.user.email});
+  if(error){err.textContent=error.message;return;}
+  closeModal();refreshCounts();
+  if(custId&&S.view==='customer-detail')go('customer-detail',{id:custId});
+  else if(S.view==='tasks')renderTasks();
+  else if(S.view==='dashboard')renderDashboard();
+}
+
+async function toggleTask(taskId,el,custId){
+  const done=el.classList.contains('done');
+  el.classList.toggle('done',!done);
+  const t=el.closest('.task-item')?.querySelector('.task-title');if(t)t.classList.toggle('done',!done);
+  await sb.from('tasks').update({status:done?'open':'done'}).eq('id',taskId);
+  refreshCounts();
+}
+
+// ═══ HELPERS ═══
+function x(s){if(s==null)return'';return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function n(v){return(v||0).toLocaleString();}
+function N2(v){return Number(v).toLocaleString('en-GB',{minimumFractionDigits:2,maximumFractionDigits:2});}
+function sBadge(s){const m={active:'badge-active',prospect:'badge-prospect',dormant:'badge-dormant'};const label=s?s.charAt(0).toUpperCase()+s.slice(1):'—';return`<span class="badge ${m[s]||'badge-dormant'}">${x(label)}</span>`;}
+function initials(a,b){return((a?.[0]||'')+(b?.[0]||'')).toUpperCase()||'?';}
+function fd(d){if(!d)return'—';try{return new Date(d).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});}catch{return String(d);}}
+function fdt(d){if(!d)return'—';try{return new Date(d).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});}catch{return String(d);}}
+function ago(d){if(!d)return'';const diff=Date.now()-new Date(d),m=Math.floor(diff/60000);if(m<1)return'just now';if(m<60)return m+'m ago';const h=Math.floor(m/60);if(h<24)return h+'h ago';const dy=Math.floor(h/24);if(dy<7)return dy+'d ago';return fd(d);}
+function past(d){if(!d)return false;return new Date(d)<new Date(new Date().toDateString());}
+</script>
+</body>
+</html>
