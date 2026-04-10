@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Brainbox CRM</title><!-- v20260410171215 -->
+<title>Brainbox CRM</title><!-- v20260410174843 -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet"/>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -556,13 +556,15 @@ async function renderCustomers(){
         ${th('last_order_date','Last Order')}
         ${th('last_contacted_at','Last Contacted')}
       </tr></thead>
-      <tbody>${!rows.length ? `<tr><td colspan="9" class="no-results">No customers found</td></tr>` : rows.map(c=>`
+      <tbody>${!rows.length ? `<tr><td colspan="11" class="no-results">No customers found</td></tr>` : rows.map(c=>`
         <tr onclick="go('customer-detail',{id:'${c.id}'})">
           <td><span>${x(c.company_name)}</span></td>
           <td class="td-mono">${x(c.kf_code||'')}</td>
           <td>${sBadge(c.status)}</td>
           <td style="color:var(--text2);font-size:12px">${x(c.store_type||'')}</td>
           <td style="color:var(--text2)">${x(c.country_name||'')}</td>
+          <td style="text-align:right;color:${c.last_12m_spend<0?'var(--red)':'inherit'}" class="td-mono">${c.last_12m_spend!=null?'£'+N2(c.last_12m_spend):'—'}</td>
+          <td style="text-align:right;color:var(--text3)" class="td-mono">${c.prior_12m_spend!=null?'£'+N2(c.prior_12m_spend):'—'}</td>
           <td style="text-align:right;color:${c.all_time_spend<0?'var(--red)':'inherit'}" class="td-mono">${c.all_time_spend!=null?'£'+N2(c.all_time_spend):'—'}</td>
           <td style="text-align:right;color:var(--text2)">${c.invoice_count!=null?c.invoice_count:'—'}</td>
           <td style="color:var(--text2)">${c.last_order_date?fd(c.last_order_date):'—'}</td>
