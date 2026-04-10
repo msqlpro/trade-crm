@@ -465,25 +465,49 @@ async function renderDashboard(){
 async function renderCustomers(){
   const sortCol=S.custSort||'company_name';
   const sortAsc=S.custSortAsc!==false;
-  let q=sb.from('customers').select('id,kf_code,company_name,status,all_time_spend,country_name,last_order_date,at_risk_flag,store_type',{count:'exact'});
-  if(S.custSearch)q=q.ilike('company_name',`%${S.custSearch}%`);
+
+  // Build query step by step
+  let q=sb.from('customers').select('id,kf_code,company_name,status,all_time_spend,country_name,last_order_date,at_risk_flag,store_type');
+
+  if(S.custSearch) q=q.ilike('company_name','%'+S.custSearch+'%');
+
   if(S.custStatus==='dormant'){
     const cutoff=new Date(Date.now()-365*864e5).toISOString().split('T')[0];
-    q=q.or(`status.eq.dormant,last_order_date.lt.${cutoff}`);
+    q=q.or('status.eq.dormant,last_order_date.lt.'+cutoff);
   } else if(S.custStatus){
     q=q.eq('status',S.custStatus);
   }
-  q=q.order(sortCol,{ascending:sortAsc,nullsFirst:false}).range(S.custPage*PG,(S.custPage+1)*PG-1);
-  const{data:rawData,count,error}=await q;
-  if(error){console.error('Customers query error:',error);setPage('<div class="no-results">Error loading customers: '+error.message+'</div>');return;}
-  const data=(rawData||[]).filter(c=>!c.company_name?.startsWith('*'));
+
+  q=q.order(sortCol,{ascending:sortAsc}).range(S.custPage*PG,(S.custPage+1)*PG-1);
+
+  const{data,error}=await q;
+
+  if(error){
+    setPage('<div style="padding:32px;color:var(--red)"><strong>Error loading customers:</strong><br>'+error.message+'<br><small>Code: '+error.code+'</small></div>');
+    return;
+  }
+
+  // Get count separately to avoid any count+range conflicts
+  let countQ=sb.from('customers').select('*',{count:'exact',head:true});
+  if(S.custSearch) countQ=countQ.ilike('company_name','%'+S.custSearch+'%');
+  if(S.custStatus==='dormant'){
+    const cutoff=new Date(Date.now()-365*864e5).toISOString().split('T')[0];
+    countQ=countQ.or('status.eq.dormant,last_order_date.lt.'+cutoff);
+  } else if(S.custStatus){
+    countQ=countQ.eq('status',S.custStatus);
+  }
+  const{count}=await countQ;
+
+  // Filter asterisk accounts client-side
+  const rows=(data||[]).filter(c=>c.company_name&&!c.company_name.startsWith('*'));
   const pages=Math.ceil((count||0)/PG);
-  // Sort header helper
+
   const th=(col,label,align)=>{
-    const active=sortCol===col, asc=active&&sortAsc;
+    const active=sortCol===col,asc=active&&sortAsc;
     const arrow=active?(asc?' ↑':' ↓'):' <span style="opacity:.25">↕</span>';
-    return`<th style="cursor:pointer;user-select:none;white-space:nowrap;${align?'text-align:'+align+';':''}" onclick="custSort('${col}')">${label}${arrow}</th>`;
+    return '<th style="cursor:pointer;user-select:none;white-space:nowrap;'+(align?'text-align:'+align+';':'')+'" onclick="custSort(\'' +col+ '\')">' +label+arrow+ '</th>';
   };
+
   setPage(`
     <div class="toolbar">
       <div class="search-wrap">
@@ -509,7 +533,7 @@ async function renderCustomers(){
         ${th('all_time_spend','Spend','right')}
         ${th('last_order_date','Last Order Date')}
       </tr></thead>
-      <tbody>${!data?.length?`<tr><td colspan="7" class="no-results">No customers found</td></tr>`:data.map(c=>`
+      <tbody>${!rows.length?`<tr><td colspan="7" class="no-results">${data?'No customers found':'Loading failed — check console'}</td></tr>`:rows.map(c=>`
         <tr onclick="go('customer-detail',{id:'${c.id}'})">
           <td><span>${x(c.company_name)}</span>${c.at_risk_flag?` <span class="badge badge-at-risk" style="font-size:9px;margin-left:4px">AT RISK</span>`:''}</td>
           <td class="td-mono">${x(c.kf_code||'')}</td>
