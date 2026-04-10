@@ -303,7 +303,7 @@ tbody tr{transition:background .1s}tbody tr:hover{background:var(--surface2);cur
 const SURL = 'https://ypfwecopdsielnouxwzv.supabase.co';
 const SKEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlwZndlY29wZHNpZWxub3V4d3p2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3NDMyNjgsImV4cCI6MjA5MTMxOTI2OH0.ll4Epk7es-knrgbG6j0e5xo59OEdMFwpxeWmMs9RfpU';
 const sb = supabase.createClient(SURL, SKEY);
-const PG = 50;
+const PG = 250;
 const PIPELINE_STAGES = ['Prospect','Contacted','Sampling','Negotiating','Won','Lost'];
 const STAGE_COLOURS = {Prospect:'#1d4ed8',Contacted:'#7c3aed',Sampling:'#0f766e',Negotiating:'#b45309',Won:'#15803d',Lost:'#dc2626'};
 
