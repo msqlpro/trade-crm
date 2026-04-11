@@ -491,7 +491,7 @@ async function renderDashboard(){
     sb.from('customers').select('*',{count:'exact',head:true}),
     sb.from('customers').select('*',{count:'exact',head:true}).eq('status','active'),
     sb.from('customers').select('*',{count:'exact',head:true}).eq('status','prospect'),
-    sb.from('customers').select('*',{count:'exact',head:true}).eq('at_risk_flag',true),
+    sb.from('customers').select('*',{count:'exact',head:true}).lt('last_order_date', new Date(Date.now()-180*864e5).toISOString().split('T')[0]),
     sb.from('tasks').select('*,customers(id,company_name)').in('status',['open','in_progress']).lte('due_date',today).order('due_date').limit(12),
     sb.from('events').select('*,customers(id,company_name)').order('occurred_at',{ascending:false}).limit(15),
     sb.from('customers').select('id,company_name,last_order_date,status').eq('status','active').lt('last_order_date',ninety).order('last_order_date').limit(8),
@@ -841,14 +841,14 @@ function custSort(col){
   S.custPage=0;renderCustomers();
 }
 async function custCSV(){
-  let q=sb.from('customers').select('kf_code,company_name,status,store_type,source,country_name,address_1,address_2,postcode,phone,mobile,all_time_spend,invoice_count,last_order_date,first_invoiced,payment_terms,discount,notes');
+  let q=sb.from('customers').select('kf_code,company_name,status,store_type,source,country_name,address_1,address_2,postcode,phone,mobile,all_time_spend,invoice_count,last_order_date,first_invoiced,notes,customer_notes,kf_created_date,new_non_ha,delivery_address_1,delivery_address_2,delivery_address_3,delivery_address_4,delivery_postcode');
   if(S.custSearch)q=q.ilike('company_name',`%${S.custSearch}%`);
   if(S.custStatus==='dormant'){const cutoff=new Date(Date.now()-365*864e5).toISOString().split('T')[0];q=q.or(`status.eq.dormant,last_order_date.lt.${cutoff}`);}
   else if(S.custStatus)q=q.eq('status',S.custStatus);
   q=q.order(S.custSort||'company_name',{ascending:S.custSortAsc!==false}).limit(10000);
   const{data}=await q;
   if(!data?.length)return;
-  const cols=['kf_code','company_name','status','store_type','source','country_name','address_1','address_2','postcode','phone','mobile','all_time_spend','invoice_count','last_order_date','last_contacted_at','first_invoiced','payment_terms','discount','notes'];
+  const cols=['kf_code','company_name','status','store_type','source','country_name','address_1','address_2','postcode','phone','mobile','website','all_time_spend','invoice_count','last_order_date','first_invoiced','last_contacted_at','notes','customer_notes','kf_created_date','new_non_ha','delivery_address_1','delivery_address_2','delivery_address_3','delivery_address_4','delivery_postcode'];
   const hdrs=['KF Code','Company','Status','Store Type','Source','Country','Address 1','Address 2','Postcode','Phone','Mobile','All-time Spend','Invoices','Last Order Date','Last Contacted','First Invoiced','Payment Terms','Discount','Notes'];
   const esc=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';
   const rows=[hdrs.join(','),...data.map(r=>cols.map(c=>esc(r[c])).join(','))];
@@ -902,11 +902,7 @@ async function renderCustomerDetail(id){
           ${dr('Last Order',c.last_order_date?fd(c.last_order_date):'—')}
           ${c.first_invoiced?dr('First Order',fd(c.first_invoiced)):''}
           ${c.kf_created_date?dr('KF Created',fd(c.kf_created_date)):''}
-          ${c.payment_terms?dr('Payment',x(c.payment_terms)+' days'):''}
-          ${c.discount?dr('Discount',c.discount+'%'):''}
-          ${c.vat_number?dr('VAT No.',`<span style="font-family:var(--mono);font-size:12px">${x(c.vat_number)}</span>`):''}
-          ${c.eori?dr('EORI',`<span style="font-family:var(--mono);font-size:12px">${x(c.eori)}</span>`):''}
-          ${dr('At Risk',c.at_risk_flag?'<span class="badge badge-at-risk">Yes</span>':'<span style="color:var(--text3)">No</span>')}
+
           ${c.mailerlite_id?dr('MailerLite',`<span style="font-family:var(--mono);font-size:11px">${x(c.mailerlite_id)}</span>`):''}
           ${c.customer_notes?dr('Int. Notes',`<span style="white-space:pre-wrap;font-size:12px;color:var(--text2)">${x(c.customer_notes)}</span>`):''}
           ${c.notes?dr('CRM Notes',`<span style="white-space:pre-wrap;font-size:12px;color:var(--text2)">${x(c.notes)}</span>`):''}
@@ -1119,21 +1115,12 @@ const IMPORT_FIELDS=[
   {key:'phone',label:'Phone / Tel'},
   {key:'mobile',label:'Mobile'},
   {key:'website',label:'Website'},
-  {key:'vat_number',label:'VAT Number'},
-  {key:'eori',label:'EORI Number'},
   // Financial
   {key:'all_time_spend',label:'All-time Spend (Total Paid)'},
   {key:'invoice_count',label:'Number of Invoices'},
-  {key:'discount',label:'Discount %'},
-  {key:'payment_terms',label:'Payment Terms'},
-  {key:'sales_code',label:'Sales Code'},
-  {key:'sales_code_name',label:'Sales Code Name'},
   // Classification
   {key:'source',label:'Source (Trade Show / Channel)'},
   {key:'store_type',label:'Store Type'},
-  {key:'member_number',label:'Member Number'},
-  {key:'po_number',label:'PO Number Required'},
-  {key:'naked',label:'Naked (0/1)'},
   {key:'new_non_ha',label:'New Non-HA Customer (0/1)'},
   // Dates
   {key:'last_order_date',label:'Last Invoiced / Last Order Date'},
@@ -1264,28 +1251,19 @@ function handleCsvFile(file){
         else if(hl==='mobile') _csv.mapping[h]='mobile';
         else if(hl==='web') _csv.mapping[h]='website';
         else if(hl==='email') _csv.mapping[h]='_email';
-        else if(hl==='vat num.'||hl==='vat number'||hr==='vatnum') _csv.mapping[h]='vat_number';
         else if(hl==='total paid') _csv.mapping[h]='all_time_spend';
         else if(hl==='notes') _csv.mapping[h]='notes';
         else if(hl==='customer notes') _csv.mapping[h]='customer_notes';
-        else if(hl==='default sales code') _csv.mapping[h]='sales_code';
-        else if(hl==='default sales code name') _csv.mapping[h]='sales_code_name';
         else if(hl==='no. of invoices') _csv.mapping[h]='invoice_count';
         else if(hl==='source') _csv.mapping[h]='source';
-        else if(hl==='po number') _csv.mapping[h]='po_number';
         else if(hl==='email 2') _csv.mapping[h]='_email2';
         else if(hl==='email 3') _csv.mapping[h]='_email3';
         else if(hl==='email 4') _csv.mapping[h]='_email4';
         else if(hl==='name 2') _csv.mapping[h]='_name2';
         else if(hl==='name 3') _csv.mapping[h]='_name3';
         else if(hl==='name 4') _csv.mapping[h]='_name4';
-        else if(hl==='member no.') _csv.mapping[h]='member_number';
-        else if(hl==='eori') _csv.mapping[h]='eori';
         else if(hl==='store type') _csv.mapping[h]='store_type';
         else if(hl==='new non ha customer') _csv.mapping[h]='new_non_ha';
-        else if(hl==='naked') _csv.mapping[h]='naked';
-        else if(hl==='payment terms') _csv.mapping[h]='payment_terms';
-        else if(hl==='discount') _csv.mapping[h]='discount';
         else if(hl==='delivery address 1') _csv.mapping[h]='delivery_address_1';
         else if(hl==='delivery address 2') _csv.mapping[h]='delivery_address_2';
         else if(hl==='delivery address 3') _csv.mapping[h]='delivery_address_3';
@@ -1414,8 +1392,8 @@ async function startImport(){
         return null;
       };
       const dateFields=['last_order_date','first_invoiced','kf_created_date'];
-      const numFields=['all_time_spend','invoice_count','discount'];
-      const boolFields=['naked','new_non_ha'];
+      const numFields=['all_time_spend','invoice_count'];
+      const boolFields=['new_non_ha'];
       Object.keys(mapping).forEach(h=>{
         const fk=mapping[h];if(!fk||fk.startsWith('_'))return;
         let v=row[h]?.trim()||null;
@@ -1708,8 +1686,7 @@ async function showAddEditCustomer(id){
     </div>
     <div style="margin-top:12px"><label class="f-label">Website</label><input class="f-input" id="ac-website" type="url" value="${x(c?.website||'')}"/></div>
     <div class="form-row" style="margin-top:12px">
-      <div><label class="f-label">Payment Terms (days)</label><input class="f-input" id="ac-payment" value="${x(c?.payment_terms||'')}"/></div>
-      <div><label class="f-label">Discount %</label><input class="f-input" type="number" id="ac-discount" value="${c?.discount||''}"/></div>
+
     </div>
     <div style="margin-top:12px"><label class="f-label">Notes</label><textarea class="f-input" id="ac-notes" rows="3">${x(c?.notes||'')}</textarea></div>
     <div id="ac-err" class="inline-err"></div>`,
@@ -1722,9 +1699,8 @@ async function saveCustomer(id){
   if(!name){err.textContent='Company name is required.';return;}
   err.textContent='';
   const gv=id=>document.getElementById(id)?.value?.trim()||null;
-  const payload={company_name:name,kf_code:gv('ac-kf'),status:document.getElementById('ac-status').value,country_name:gv('ac-country'),notes:gv('ac-notes'),pipeline_stage:document.getElementById('ac-pipe').value||null,phone:gv('ac-phone'),mobile:gv('ac-mobile'),source:gv('ac-source'),store_type:gv('ac-store-type'),address_1:gv('ac-addr1'),address_2:gv('ac-addr2'),postcode:gv('ac-postcode'),website:gv('ac-website'),payment_terms:gv('ac-payment')};
+  const payload={company_name:name,kf_code:gv('ac-kf'),status:document.getElementById('ac-status').value,country_name:gv('ac-country'),notes:gv('ac-notes'),pipeline_stage:document.getElementById('ac-pipe').value||null,phone:gv('ac-phone'),mobile:gv('ac-mobile'),source:gv('ac-source'),store_type:gv('ac-store-type'),address_1:gv('ac-addr1'),address_2:gv('ac-addr2'),postcode:gv('ac-postcode'),website:gv('ac-website')};
   const spend=document.getElementById('ac-spend')?.value;if(spend)payload.all_time_spend=parseFloat(spend);
-  const disc=document.getElementById('ac-discount')?.value;if(disc)payload.discount=parseFloat(disc);
   const{error}=id?await sb.from('customers').update(payload).eq('id',id):await sb.from('customers').insert(payload);
   if(error){err.textContent=error.message;return;}
   closeModal();refreshCounts();
