@@ -77,7 +77,6 @@ textarea.f-input{resize:vertical;min-height:72px}
 .topbar-sub{font-size:12px;color:var(--text3)}
 .topbar-right{margin-left:auto;display:flex;align-items:center;gap:8px}
 .page{flex:1;overflow-y:auto;padding:20px}
-.page-cust{flex:1;display:flex;flex-direction:column;padding:20px;min-height:0;overflow:hidden}
 .page-kanban{flex:1;overflow:hidden;display:flex;flex-direction:column}
 /* BUTTONS */
 .btn{display:inline-flex;align-items:center;gap:6px;padding:7px 13px;border-radius:var(--r);border:1.5px solid var(--border);background:var(--surface);font-family:var(--f);font-size:13px;font-weight:500;color:var(--text);transition:all .12s;white-space:nowrap;line-height:1}
@@ -101,7 +100,7 @@ textarea.f-input{resize:vertical;min-height:72px}
 .stat-n{font-size:26px;font-weight:700;letter-spacing:-.8px;line-height:1;font-variant-numeric:tabular-nums}
 .stat-l{font-size:12px;color:var(--text2);margin-top:5px;font-weight:500}
 /* TABLE */
-.table-wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow:auto;flex:1;min-height:0}
+.table-wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow:auto}
 .table-wrap table thead th{position:sticky;top:0;z-index:2;background:var(--surface2)}
 table{width:100%;border-collapse:collapse}
 th{font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--text2);padding:10px 14px;background:var(--surface2);border-bottom:1px solid var(--border);text-align:left;white-space:nowrap}
@@ -544,7 +543,7 @@ async function renderCustomers(){
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> CSV
       </button>
     </div>
-    <div class="table-wrap">
+    <div class="table-wrap" style="max-height:calc(100vh - 240px)">
       <table><thead><tr>
         ${th('company_name','Company')}
         ${th('status','Status')}
@@ -581,7 +580,7 @@ async function renderCustomers(){
     <div style="font-size:11px;color:var(--text3);margin-top:8px;padding-left:2px">
       💡 Tip: "Last Contacted" updates when you log activity on a customer. Red = no contact in 90+ days.
     </div>
-  `, "page-cust");
+  `);
 }
 let _cst;
 function custSearch(v){clearTimeout(_cst);_cst=setTimeout(()=>{S.custSearch=v;S.custPage=0;renderCustomers();},300);}
