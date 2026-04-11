@@ -589,7 +589,7 @@ async function renderCustomers(){
   const th = (col, label, align) => {
     const active = sortCol===col, asc = active&&sortAsc;
     const arrow = active ? (asc ? ' ↑' : ' ↓') : ' <span style="opacity:.25">↕</span>';
-    return '<th style="cursor:pointer;user-select:none;white-space:nowrap;'+(align?'text-align:'+align+';':'')+'" onclick="custSort(\''+col+'\')">'+label+arrow+'</th>';
+    return '<th style="cursor:pointer;user-select:none;white-space:nowrap;" onclick="custSort(\''+col+'\')">'+label+arrow+'</th>';
   };
 
   const vcols = visibleCols();
@@ -731,10 +731,10 @@ function renderCell(key,c){
     case 'mobile':           return txt(c.mobile,'color:var(--text2);font-family:var(--mono);font-size:12px');
     case 'website':          return c.website?td(`<a href="${x(c.website)}" target="_blank" onclick="event.stopPropagation()" style="color:var(--blue);font-size:11px">${x(c.website)}</a>`):td('—','','color:var(--text3)');
     // Spend
-    case 'last_12m_spend':   return mon(c.last_12m_spend!=null?'£'+N2(c.last_12m_spend):'',`text-align:right;color:${c.last_12m_spend<0?'var(--red)':'inherit'}`);
-    case 'prior_12m_spend':  return mon(c.prior_12m_spend!=null?'£'+N2(c.prior_12m_spend):'','text-align:right;color:var(--text3)');
-    case 'all_time_spend':   return mon(c.all_time_spend!=null?'£'+N2(c.all_time_spend):'',`text-align:right;color:${c.all_time_spend<0?'var(--red)':'inherit'}`);
-    case 'invoice_count':    return td(c.invoice_count!=null?c.invoice_count:'','td-mono','text-align:right;color:var(--text2)');
+    case 'last_12m_spend':   return mon(c.last_12m_spend!=null?'£'+N2(c.last_12m_spend):'',`color:${c.last_12m_spend<0?'var(--red)':'inherit'}`);
+    case 'prior_12m_spend':  return mon(c.prior_12m_spend!=null?'£'+N2(c.prior_12m_spend):'','color:var(--text3)');
+    case 'all_time_spend':   return mon(c.all_time_spend!=null?'£'+N2(c.all_time_spend):'',`color:${c.all_time_spend<0?'var(--red)':'inherit'}`);
+    case 'invoice_count':    return td(c.invoice_count!=null?c.invoice_count:'','td-mono','color:var(--text2)');
     // Dates
     case 'last_order_date':  return dt(c.last_order_date);
     case 'first_invoiced':   return dt(c.first_invoiced);
