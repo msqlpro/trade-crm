@@ -770,6 +770,8 @@ function toggleColPicker(){
   }
 }
 document.addEventListener('click',e=>{
+  // If the clicked element was removed from DOM (e.g. by renderCustomers re-render), ignore
+  if(!document.body.contains(e.target))return;
   if(S.custColsOpen&&!e.target.closest('#col-picker-panel')&&!e.target.closest('#col-picker-btn')){
     S.custColsOpen=false;
     const p=document.getElementById('col-picker-panel');
@@ -798,14 +800,11 @@ function colMove(i,dir){
   const cols=S.custCols||DEFAULT_COLS;
   const j=i+dir;
   if(j<0||j>=cols.length)return;
+  // Save scroll position - renderCustomers will restore it
   const listEl=document.getElementById('col-picker-list');
   S.colPickerScroll=listEl?listEl.scrollTop:0;
   const moved=cols.splice(i,1)[0];
   cols.splice(j,0,moved);
-  renderColPickerList();
-  // Restore scroll
-  const l=document.getElementById('col-picker-list');
-  if(l&&S.colPickerScroll)l.scrollTop=S.colPickerScroll;
   renderCustomers();
   saveColPrefs();
 }
