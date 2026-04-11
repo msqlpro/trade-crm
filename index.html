@@ -318,18 +318,58 @@ let S = {
 };
 
 const ALL_COLS = [
-  {key:'status',       label:'Status'},
-  {key:'store_type',   label:'Store Type'},
-  {key:'country_name', label:'Country'},
-  {key:'last_12m_spend', label:'Last 12m'},
-  {key:'prior_12m_spend',label:'Prev 12m'},
-  {key:'all_time_spend', label:'All Time'},
-  {key:'last_order_date',label:'Last Order'},
-  {key:'last_contacted_at',label:'Last Contacted'},
-  {key:'invoice_count',  label:'Invoices'},
-  {key:'kf_code',        label:'Code'},
+  // Identity & status
+  {key:'kf_code',            label:'Code'},
+  {key:'status',             label:'Status'},
+  {key:'store_type',         label:'Store Type'},
+  {key:'source',             label:'Source'},
+  {key:'new_non_ha',         label:'New non-HA'},
+  // Primary contact
+  {key:'contact_name',       label:'Contact Name'},
+  {key:'contact_first',      label:'Contact First Name'},
+  {key:'contact_last',       label:'Contact Last Name'},
+  {key:'contact_email',      label:'Email'},
+  // Additional contacts
+  {key:'name_2',             label:'Name 2'},
+  {key:'email_2',            label:'Email 2'},
+  {key:'name_3',             label:'Name 3'},
+  {key:'email_3',            label:'Email 3'},
+  {key:'name_4',             label:'Name 4'},
+  {key:'email_4',            label:'Email 4'},
+  // Address
+  {key:'address_1',          label:'Address 1'},
+  {key:'address_2',          label:'Address 2'},
+  {key:'address_3',          label:'Address 3'},
+  {key:'address_4',          label:'Address 4'},
+  {key:'postcode',           label:'Postcode'},
+  {key:'country_name',       label:'Country'},
+  // Delivery address
+  {key:'delivery_address_1', label:'Delivery Address 1'},
+  {key:'delivery_address_2', label:'Delivery Address 2'},
+  {key:'delivery_address_3', label:'Delivery Address 3'},
+  {key:'delivery_address_4', label:'Delivery Address 4'},
+  {key:'delivery_postcode',  label:'Delivery Postcode'},
+  // Contact details
+  {key:'phone',              label:'Tel'},
+  {key:'mobile',             label:'Mobile'},
+  {key:'website',            label:'Web'},
+  // Spend & activity
+  {key:'last_12m_spend',     label:'Last 12m'},
+  {key:'prior_12m_spend',    label:'Prev 12m'},
+  {key:'all_time_spend',     label:'Total Paid'},
+  {key:'invoice_count',      label:'No. of Invoices'},
+  {key:'last_order_date',    label:'Last Invoiced'},
+  {key:'first_invoiced',     label:'First Invoiced'},
+  {key:'last_contacted_at',  label:'Last Contacted'},
+  // Dates
+  {key:'kf_created_date',    label:'Customer Created Date'},
+  // Notes
+  {key:'notes',              label:'Notes'},
+  {key:'customer_notes',     label:'Customer Notes'},
 ];
-const DEFAULT_COLS = ALL_COLS.map(c=>({...c,visible:true}));
+// Default visible columns (matching original layout)
+const DEFAULT_VISIBLE = ['status','store_type','country_name','last_12m_spend','prior_12m_spend','all_time_spend','last_order_date','last_contacted_at','invoice_count','kf_code'];
+const DEFAULT_COLS = ALL_COLS.map(c=>({...c,visible:DEFAULT_VISIBLE.includes(c.key)}));
 
 // ═══ INIT ═══
 (async()=>{
@@ -503,7 +543,7 @@ async function renderCustomers(){
   const sortAsc = S.custSortAsc !== false;
 
   // Main data query
-  let q = sb.from('customers').select('id,kf_code,company_name,status,all_time_spend,last_12m_spend,prior_12m_spend,country_name,last_order_date,last_contacted_at,store_type,source,invoice_count,hidden');
+  let q = sb.from('customers').select('id,kf_code,company_name,status,all_time_spend,last_12m_spend,prior_12m_spend,country_name,last_order_date,last_contacted_at,store_type,source,invoice_count,hidden,phone,mobile,website,address_1,address_2,address_3,address_4,postcode,delivery_address_1,delivery_address_2,delivery_address_3,delivery_address_4,delivery_postcode,first_invoiced,kf_created_date,notes,customer_notes,new_non_ha,contacts(first_name,last_name,email,is_primary)');
   if(!S.custShowHidden) q = q.eq('hidden', false);
   if(S.custSearch) q = q.ilike('company_name', '%'+S.custSearch+'%');
   if(S.custStatus === 'dormant'){
@@ -552,7 +592,7 @@ async function renderCustomers(){
   };
 
   const vcols = visibleCols();
-  const RIGHT_ALIGN = ['last_12m_spend','prior_12m_spend','all_time_spend','invoice_count'];
+  const RIGHT_ALIGN = ['last_12m_spend','prior_12m_spend','all_time_spend','invoice_count','first_invoiced','last_order_date','kf_created_date','last_contacted_at'];
   const theadCols = vcols.map(c=>th(c.key,c.label,RIGHT_ALIGN.includes(c.key)?'right':null)).join('');
   const tbodyRows = rows.map(c=>{
     const cells = vcols.map(col=>renderCell(col.key,c)).join('');
@@ -630,18 +670,67 @@ function custToggleHidden(){S.custShowHidden=!S.custShowHidden;S.custPage=0;rend
 
 function visibleCols(){return (S.custCols||DEFAULT_COLS).filter(c=>c.visible);}
 
+function _contact(c,n){
+  // returns nth contact (0=primary first, then others)
+  if(!c.contacts||!c.contacts.length)return null;
+  const sorted=[...c.contacts].sort((a,b)=>(b.is_primary?1:0)-(a.is_primary?1:0));
+  return sorted[n]||null;
+}
 function renderCell(key,c){
+  const td=(v,cls='',style='')=>`<td class="${cls}" style="${style}">${v}</td>`;
+  const txt=(v,s='color:var(--text2);font-size:12px')=>td(x(v||''),'' ,s);
+  const mon=(v,s='')=>td(v,`td-mono`,s);
+  const dt=(v)=>td(v?fd(v):'—','','color:var(--text2)');
+  const ct=n=>_contact(c,n);
   switch(key){
-    case 'status':       return `<td>${sBadge(c.status)}</td>`;
-    case 'store_type':   return `<td style="color:var(--text2);font-size:12px">${x(c.store_type||'')}</td>`;
-    case 'country_name': return `<td style="color:var(--text2)">${x(c.country_name||'')}</td>`;
-    case 'last_12m_spend': return `<td style="text-align:right;color:${c.last_12m_spend<0?'var(--red)':'inherit'}" class="td-mono">${c.last_12m_spend!=null?'£'+N2(c.last_12m_spend):'—'}</td>`;
-    case 'prior_12m_spend':return `<td style="text-align:right;color:var(--text3)" class="td-mono">${c.prior_12m_spend!=null?'£'+N2(c.prior_12m_spend):'—'}</td>`;
-    case 'all_time_spend': return `<td style="text-align:right;color:${c.all_time_spend<0?'var(--red)':'inherit'}" class="td-mono">${c.all_time_spend!=null?'£'+N2(c.all_time_spend):'—'}</td>`;
-    case 'last_order_date':return `<td style="color:var(--text2)">${c.last_order_date?fd(c.last_order_date):'—'}</td>`;
-    case 'last_contacted_at':return `<td style="color:${!c.last_contacted_at?'var(--text3)':daysSince(c.last_contacted_at)>90?'var(--red)':'var(--text2)'}">${c.last_contacted_at?ago(c.last_contacted_at):'Never'}</td>`;
-    case 'invoice_count':  return `<td style="text-align:right;color:var(--text2)">${c.invoice_count!=null?c.invoice_count:'—'}</td>`;
-    case 'kf_code':        return `<td class="td-mono" style="color:var(--text3)">${x(c.kf_code||'')}</td>`;
+    // Identity
+    case 'kf_code':          return mon(x(c.kf_code||''),'color:var(--text3)');
+    case 'status':           return td(sBadge(c.status));
+    case 'store_type':       return txt(c.store_type);
+    case 'source':           return txt(c.source,'color:var(--text3);font-size:11px');
+    case 'new_non_ha':       return td(c.new_non_ha?'<span class="tag-chip" style="font-size:10px">New</span>':'','','');
+    // Primary contact
+    case 'contact_name':{const p=ct(0);return txt(p?(x(p.first_name||'')+' '+x(p.last_name||'')).trim():'');}
+    case 'contact_first':{const p=ct(0);return txt(p?p.first_name:'');}
+    case 'contact_last':{const p=ct(0);return txt(p?p.last_name:'');}
+    case 'contact_email':{const p=ct(0);return txt(p?p.email:'','color:var(--text2);font-size:11px;font-family:var(--mono)');}
+    // Additional contacts
+    case 'name_2':{const p=ct(1);return txt(p?(x(p.first_name||'')+' '+x(p.last_name||'')).trim():'');}
+    case 'email_2':{const p=ct(1);return txt(p?p.email:'','color:var(--text2);font-size:11px;font-family:var(--mono)');}
+    case 'name_3':{const p=ct(2);return txt(p?(x(p.first_name||'')+' '+x(p.last_name||'')).trim():'');}
+    case 'email_3':{const p=ct(2);return txt(p?p.email:'','color:var(--text2);font-size:11px;font-family:var(--mono)');}
+    case 'name_4':{const p=ct(3);return txt(p?(x(p.first_name||'')+' '+x(p.last_name||'')).trim():'');}
+    case 'email_4':{const p=ct(3);return txt(p?p.email:'','color:var(--text2);font-size:11px;font-family:var(--mono)');}
+    // Address
+    case 'address_1':        return txt(c.address_1);
+    case 'address_2':        return txt(c.address_2);
+    case 'address_3':        return txt(c.address_3);
+    case 'address_4':        return txt(c.address_4);
+    case 'postcode':         return mon(x(c.postcode||''),'color:var(--text2)');
+    case 'country_name':     return txt(c.country_name,'color:var(--text2)');
+    // Delivery address
+    case 'delivery_address_1': return txt(c.delivery_address_1);
+    case 'delivery_address_2': return txt(c.delivery_address_2);
+    case 'delivery_address_3': return txt(c.delivery_address_3);
+    case 'delivery_address_4': return txt(c.delivery_address_4);
+    case 'delivery_postcode':  return mon(x(c.delivery_postcode||''),'color:var(--text2)');
+    // Contact details
+    case 'phone':            return txt(c.phone,'color:var(--text2);font-family:var(--mono);font-size:12px');
+    case 'mobile':           return txt(c.mobile,'color:var(--text2);font-family:var(--mono);font-size:12px');
+    case 'website':          return c.website?td(`<a href="${x(c.website)}" target="_blank" onclick="event.stopPropagation()" style="color:var(--blue);font-size:11px">${x(c.website)}</a>`):td('—','','color:var(--text3)');
+    // Spend
+    case 'last_12m_spend':   return mon(c.last_12m_spend!=null?'£'+N2(c.last_12m_spend):'—',`text-align:right;color:${c.last_12m_spend<0?'var(--red)':'inherit'}`);
+    case 'prior_12m_spend':  return mon(c.prior_12m_spend!=null?'£'+N2(c.prior_12m_spend):'—','text-align:right;color:var(--text3)');
+    case 'all_time_spend':   return mon(c.all_time_spend!=null?'£'+N2(c.all_time_spend):'—',`text-align:right;color:${c.all_time_spend<0?'var(--red)':'inherit'}`);
+    case 'invoice_count':    return td(c.invoice_count!=null?c.invoice_count:'—','td-mono','text-align:right;color:var(--text2)');
+    // Dates
+    case 'last_order_date':  return dt(c.last_order_date);
+    case 'first_invoiced':   return dt(c.first_invoiced);
+    case 'kf_created_date':  return dt(c.kf_created_date);
+    case 'last_contacted_at':return td(c.last_contacted_at?ago(c.last_contacted_at):'Never','',`color:${!c.last_contacted_at?'var(--text3)':daysSince(c.last_contacted_at)>90?'var(--red)':'var(--text2)'}`);
+    // Notes
+    case 'notes':            return td(x((c.notes||'').substring(0,60)+(c.notes?.length>60?'…':'')),'','color:var(--text2);font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap');
+    case 'customer_notes':   return td(x((c.customer_notes||'').substring(0,60)+(c.customer_notes?.length>60?'…':'')),'','color:var(--text2);font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap');
     default: return '<td>—</td>';
   }
 }
