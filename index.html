@@ -360,15 +360,18 @@ async function loadSettings(){
   if(data)data.forEach(r=>{if(r.key==='mailerlite_api_key')S.mlKey=r.value||'';});
 }
 async function loadColPrefs(){
-  const{data}=await sb.from('user_profiles').select('column_prefs').eq('id',S.user.id).single();
-  if(data?.column_prefs){
-    // Merge saved prefs with ALL_COLS (handles new cols added later)
-    const saved = data.column_prefs;
-    const savedKeys = saved.map(c=>c.key);
-    const merged = saved.map(c=>({...ALL_COLS.find(a=>a.key===c.key)||{key:c.key,label:c.key},visible:c.visible})).filter(c=>ALL_COLS.find(a=>a.key===c.key));
-    const newCols = ALL_COLS.filter(c=>!savedKeys.includes(c.key)).map(c=>({...c,visible:true}));
-    S.custCols = [...merged,...newCols];
-  } else {
+  try{
+    const{data}=await sb.from('user_profiles').select('column_prefs').eq('id',S.user.id).maybeSingle();
+    if(data?.column_prefs){
+      const saved = data.column_prefs;
+      const savedKeys = saved.map(c=>c.key);
+      const merged = saved.map(c=>({...ALL_COLS.find(a=>a.key===c.key)||{key:c.key,label:c.key},visible:c.visible})).filter(c=>ALL_COLS.find(a=>a.key===c.key));
+      const newCols = ALL_COLS.filter(c=>!savedKeys.includes(c.key)).map(c=>({...c,visible:true}));
+      S.custCols = [...merged,...newCols];
+    } else {
+      S.custCols = DEFAULT_COLS.map(c=>({...c}));
+    }
+  }catch(e){
     S.custCols = DEFAULT_COLS.map(c=>({...c}));
   }
 }
@@ -548,6 +551,18 @@ async function renderCustomers(){
     return '<th style="cursor:pointer;user-select:none;white-space:nowrap;'+(align?'text-align:'+align+';':'')+'" onclick="custSort(\''+col+'\')">'+label+arrow+'</th>';
   };
 
+  const vcols = visibleCols();
+  const RIGHT_ALIGN = ['last_12m_spend','prior_12m_spend','all_time_spend','invoice_count'];
+  const theadCols = vcols.map(c=>th(c.key,c.label,RIGHT_ALIGN.includes(c.key)?'right':null)).join('');
+  const tbodyRows = rows.map(c=>{
+    const cells = vcols.map(col=>renderCell(col.key,c)).join('');
+    return '<tr onclick="go(\'customer-detail\',{id:\''+c.id+'\'})">'
+      +'<td><span>'+x(c.company_name)+'</span></td>'
+      +cells
+      +'</tr>';
+  }).join('');
+  const colCount = 1 + vcols.length;
+
   setPage(`
     <div class="toolbar" style="flex-wrap:wrap;gap:8px;flex-shrink:0">
       <div class="search-wrap">
@@ -591,16 +606,9 @@ async function renderCustomers(){
     <div class="table-wrap" style="max-height:calc(100vh - 240px)">
       <table><thead><tr>
         ${th('company_name','Company')}
-        ${visibleCols().map(c=>{
-          const right=['last_12m_spend','prior_12m_spend','all_time_spend','invoice_count'].includes(c.key);
-          return th(c.key,c.label,right?'right':null);
-        }).join('')}
+        ${theadCols}
       </tr></thead>
-      <tbody>${!rows.length ? `<tr><td colspan="${1+visibleCols().length}" class="no-results">No customers found</td></tr>` : rows.map(c=>`
-        <tr onclick="go('customer-detail',{id:'${c.id}'})">
-          <td><span>${x(c.company_name)}</span></td>
-          ${visibleCols().map(col=>renderCell(col.key,c)).join('')}
-        </tr>`).join('')}</tbody></table>
+      <tbody>${!rows.length ? '<tr><td colspan="'+colCount+'" class="no-results">No customers found</td></tr>' : tbodyRows}</tbody></table>
       ${pages>1?`<div class="pagination">
         <button class="btn btn-sm" onclick="custPg(-1)" ${S.custPage===0?'disabled':''}>← Prev</button>
         <span style="font-size:12px;color:var(--text2)">Page ${S.custPage+1} of ${pages}</span>
