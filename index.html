@@ -100,7 +100,8 @@ textarea.f-input{resize:vertical;min-height:72px}
 .stat-n{font-size:26px;font-weight:700;letter-spacing:-.8px;line-height:1;font-variant-numeric:tabular-nums}
 .stat-l{font-size:12px;color:var(--text2);margin-top:5px;font-weight:500}
 /* TABLE */
-.table-wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow:hidden}
+.table-wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow:auto}
+.table-wrap table thead th{position:sticky;top:0;z-index:2;background:var(--surface2)}
 table{width:100%;border-collapse:collapse}
 th{font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--text2);padding:10px 14px;background:var(--surface2);border-bottom:1px solid var(--border);text-align:left;white-space:nowrap}
 td{padding:11px 14px;border-bottom:1px solid var(--border);font-size:13px;vertical-align:middle}
@@ -545,30 +546,30 @@ async function renderCustomers(){
     <div class="table-wrap">
       <table><thead><tr>
         ${th('company_name','Company')}
-        ${th('kf_code','Code')}
         ${th('status','Status')}
         ${th('store_type','Store Type')}
         ${th('country_name','Country')}
         ${th('last_12m_spend','Last 12m','right')}
         ${th('prior_12m_spend','Prev 12m','right')}
         ${th('all_time_spend','All Time Spend','right')}
-        ${th('invoice_count','Invoices','right')}
         ${th('last_order_date','Last Order')}
         ${th('last_contacted_at','Last Contacted')}
+        ${th('invoice_count','Invoices','right')}
+        ${th('kf_code','Code')}
       </tr></thead>
       <tbody>${!rows.length ? `<tr><td colspan="11" class="no-results">No customers found</td></tr>` : rows.map(c=>`
         <tr onclick="go('customer-detail',{id:'${c.id}'})">
           <td><span>${x(c.company_name)}</span></td>
-          <td class="td-mono">${x(c.kf_code||'')}</td>
           <td>${sBadge(c.status)}</td>
           <td style="color:var(--text2);font-size:12px">${x(c.store_type||'')}</td>
           <td style="color:var(--text2)">${x(c.country_name||'')}</td>
           <td style="text-align:right;color:${c.last_12m_spend<0?'var(--red)':'inherit'}" class="td-mono">${c.last_12m_spend!=null?'£'+N2(c.last_12m_spend):'—'}</td>
           <td style="text-align:right;color:var(--text3)" class="td-mono">${c.prior_12m_spend!=null?'£'+N2(c.prior_12m_spend):'—'}</td>
           <td style="text-align:right;color:${c.all_time_spend<0?'var(--red)':'inherit'}" class="td-mono">${c.all_time_spend!=null?'£'+N2(c.all_time_spend):'—'}</td>
-          <td style="text-align:right;color:var(--text2)">${c.invoice_count!=null?c.invoice_count:'—'}</td>
           <td style="color:var(--text2)">${c.last_order_date?fd(c.last_order_date):'—'}</td>
           <td style="color:${!c.last_contacted_at?'var(--text3)':daysSince(c.last_contacted_at)>90?'var(--red)':'var(--text2)'}">${c.last_contacted_at?ago(c.last_contacted_at):'Never'}</td>
+          <td style="text-align:right;color:var(--text2)">${c.invoice_count!=null?c.invoice_count:'—'}</td>
+          <td class="td-mono" style="color:var(--text3)">${x(c.kf_code||'')}</td>
         </tr>`).join('')}</tbody></table>
       ${pages>1?`<div class="pagination">
         <button class="btn btn-sm" onclick="custPg(-1)" ${S.custPage===0?'disabled':''}>← Prev</button>
