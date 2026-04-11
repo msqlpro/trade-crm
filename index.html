@@ -659,6 +659,11 @@ async function renderCustomers(){
       💡 Tip: "Last Contacted" updates when you log activity on a customer. Red = no contact in 90+ days.
     </div>
   `);
+  // Re-open column picker if it was open before re-render
+  if(S.custColsOpen){
+    const p=document.getElementById('col-picker-panel');
+    if(p){p.style.display='block';renderColPickerList();}
+  }
 }
 let _cst;
 function custSearch(v){clearTimeout(_cst);_cst=setTimeout(()=>{S.custSearch=v;S.custPage=0;renderCustomers();},300);}
