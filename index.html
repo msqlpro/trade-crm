@@ -698,7 +698,7 @@ function renderCell(key,c){
     case 'kf_code':          return mon(x(c.kf_code||''),'color:var(--text3)');
     case 'status':           return td(sBadge(c.status));
     case 'store_type':       return txt(c.store_type);
-    case 'source':           return txt(c.source,'color:var(--text3);font-size:11px');
+    case 'source':           return td(x((c.source||'').substring(0,40)+(c.source?.length>40?'…':'')),'','color:var(--text3);font-size:11px;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap');
     case 'new_non_ha':       return td(c.new_non_ha?'<span class="tag-chip" style="font-size:10px">New</span>':'','','');
     // Primary contact
     case 'contact_name':{const p=ct(0);return txt(p?(x(p.first_name||'')+' '+x(p.last_name||'')).trim():'');}
