@@ -560,7 +560,7 @@ async function renderCustomers(){
     q = q.or('last_contacted_at.is.null,last_contacted_at.lt.'+cutoff);
   }
   // Push NULLs to bottom for numeric sorts
-  const numericCols = ['all_time_spend','invoice_count','last_order_date','last_contacted_at'];
+  const numericCols = ['all_time_spend','last_12m_spend','prior_12m_spend','invoice_count','last_order_date','last_contacted_at','first_invoiced','kf_created_date'];
   if(numericCols.includes(sortCol)){
     q = q.order(sortCol, {ascending: sortAsc, nullsFirst: false});
   } else {
@@ -826,7 +826,7 @@ async function resetColPrefs(){
 }
 function custSort(col){
   if(S.custSort===col)S.custSortAsc=!S.custSortAsc;
-  else{S.custSort=col;S.custSortAsc=col!=='all_time_spend';}
+  else{S.custSort=col;S.custSortAsc=!['all_time_spend','last_12m_spend','prior_12m_spend','invoice_count'].includes(col);}
   S.custPage=0;renderCustomers();
 }
 async function custCSV(){
