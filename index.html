@@ -662,7 +662,13 @@ async function renderCustomers(){
   // Re-open column picker if it was open before re-render
   if(S.custColsOpen){
     const p=document.getElementById('col-picker-panel');
-    if(p){p.style.display='block';renderColPickerList();}
+    if(p){
+      p.style.display='block';
+      renderColPickerList();
+      // Restore scroll position so user doesn't jump back to top
+      const listEl=document.getElementById('col-picker-list');
+      if(listEl&&S.colPickerScroll)listEl.scrollTop=S.colPickerScroll;
+    }
   }
 }
 let _cst;
@@ -825,6 +831,9 @@ function _colDragEnd(){
 }
 
 function toggleColVisible(i,val){
+  // Save scroll position before DOM rebuild wipes the panel
+  const listEl=document.getElementById('col-picker-list');
+  S.colPickerScroll=listEl?listEl.scrollTop:0;
   (S.custCols||DEFAULT_COLS)[i].visible=val;
   renderCustomers();
   saveColPrefs();
