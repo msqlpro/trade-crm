@@ -104,7 +104,7 @@ textarea.f-input{resize:vertical;min-height:72px}
 .table-wrap table thead th{position:sticky;top:0;z-index:2;background:var(--surface2)}
 table{width:100%;border-collapse:collapse}
 th{font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--text2);padding:10px 14px;background:var(--surface2);border-bottom:1px solid var(--border);text-align:left;white-space:nowrap}
-td{padding:11px 14px;border-bottom:1px solid var(--border);font-size:13px;vertical-align:middle}
+td{padding:11px 14px;border-bottom:1px solid var(--border);font-size:13px;vertical-align:middle;white-space:nowrap}
 tr:last-child td{border-bottom:none}
 tbody tr{transition:background .1s}tbody tr:hover{background:var(--surface2);cursor:pointer}
 .td-mono{font-family:var(--mono);font-size:12px;color:var(--text2)}
@@ -588,7 +588,7 @@ async function renderCustomers(){
   const th = (col, label, align) => {
     const active = sortCol===col, asc = active&&sortAsc;
     const arrow = active ? (asc ? ' ↑' : ' ↓') : ' <span style="opacity:.25">↕</span>';
-    return '<th style="cursor:pointer;user-select:none;white-space:nowrap;'+(align?'text-align:'+align+';':'')+'" onclick="custSort(\''+col+'\')">'+label+arrow+'</th>';
+    return '<th style="cursor:pointer;user-select:none;white-space:nowrap;width:1%;'+(align?'text-align:'+align+';':'')+'" onclick="custSort(\''+col+'\')">'+label+arrow+'</th>';
   };
 
   const vcols = visibleCols();
@@ -644,8 +644,8 @@ async function renderCustomers(){
       </div>
     </div>
     <div class="table-wrap" style="max-height:calc(100vh - 240px)">
-      <table><thead><tr>
-        ${th('company_name','Company')}
+      <table style="width:100%;table-layout:auto"><thead><tr>
+        <th style="cursor:pointer;user-select:none;min-width:180px" onclick="custSort('company_name')">Company ${S.custSort==='company_name'?(S.custSortAsc?'↑':'↓'):'<span style="opacity:.25">↕</span>'}</th>
         ${theadCols}
       </tr></thead>
       <tbody>${!rows.length ? '<tr><td colspan="'+colCount+'" class="no-results">No customers found</td></tr>' : tbodyRows}</tbody></table>
