@@ -635,10 +635,15 @@ async function renderCustomers(){
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
           Columns
         </button>
-        <div id="col-picker-panel" style="display:none;position:absolute;right:0;top:calc(100% + 6px);background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--sh-lg);z-index:200;width:240px;padding:8px 0">
-          <div style="padding:6px 12px 6px;font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--border);margin-bottom:4px">▲▼ Reorder · ✓ Show/Hide</div>
-          <div id="col-picker-list" style="max-height:min(420px,55vh);overflow-y:auto"></div>
-          <div style="border-top:1px solid var(--border);margin-top:4px;padding:6px 12px 2px;display:flex;gap:6px">
+        <div id="col-picker-panel" style="display:none;position:absolute;right:0;top:calc(100% + 6px);background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--sh-lg);z-index:200;width:260px;padding:0">
+          <div style="padding:8px 14px;font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--border);background:var(--surface2);border-radius:var(--r) var(--r) 0 0">Drag to reorder · tick to show</div>
+          <div style="padding:6px 14px;border-bottom:1px solid var(--border);background:var(--surface2);display:flex;align-items:center;gap:8px">
+            <span style="opacity:.3;font-size:18px;cursor:default">⠿</span>
+            <span style="font-size:13px;font-weight:600;flex:1">Company</span>
+            <span style="font-size:11px;color:var(--text3);font-style:italic">locked</span>
+          </div>
+          <div id="col-picker-list" style="max-height:min(400px,52vh);overflow-y:auto"></div>
+          <div style="border-top:1px solid var(--border);padding:8px 14px">
             <button class="btn btn-xs" onclick="resetColPrefs()">Reset to default</button>
           </div>
         </div>
@@ -779,32 +784,74 @@ document.addEventListener('click',e=>{
   }
 });
 
+let _cpDrag=null; // {idx, startY, rowH}
+
 function renderColPickerList(){
   const list=document.getElementById('col-picker-list');
   if(!list)return;
   const cols=S.custCols||DEFAULT_COLS;
   list.innerHTML=cols.map((c,i)=>`
     <div class="col-pick-row" data-i="${i}"
-      style="display:flex;align-items:center;gap:6px;padding:4px 10px;user-select:none">
-      <div style="display:flex;flex-direction:column;gap:1px;flex-shrink:0">
-        <button onclick="colMove(${i},-1)" ${i===0?'disabled':''} style="border:none;background:none;cursor:${i===0?'default':'pointer'};padding:1px 3px;font-size:10px;line-height:1;color:${i===0?'var(--border2)':'var(--text2)'}">▲</button>
-        <button onclick="colMove(${i},1)" ${i===cols.length-1?'disabled':''} style="border:none;background:none;cursor:${i===cols.length-1?'default':'pointer'};padding:1px 3px;font-size:10px;line-height:1;color:${i===cols.length-1?'var(--border2)':'var(--text2)'}">▼</button>
-      </div>
-      <span style="flex:1;font-size:13px">${c.label}</span>
+      style="display:flex;align-items:center;gap:10px;padding:7px 14px;user-select:none;background:${_cpDrag?.idx===i?'var(--surface2)':'transparent'};border-bottom:1px solid var(--border)">
+      <span class="cp-handle" data-i="${i}"
+        style="font-size:22px;line-height:1;color:var(--text3);cursor:grab;flex-shrink:0;padding:2px 4px;border-radius:4px;transition:background .1s"
+        onmouseenter="this.style.background='var(--surface2)'" onmouseleave="this.style.background=''"
+      >⠿</span>
+      <span style="flex:1;font-size:13px;font-weight:500">${c.label}</span>
       <input type="checkbox" ${c.visible?'checked':''} onchange="toggleColVisible(${i},this.checked)"
-        style="width:15px;height:15px;accent-color:var(--accent);cursor:pointer;flex-shrink:0">
+        style="width:16px;height:16px;accent-color:var(--accent);cursor:pointer;flex-shrink:0">
     </div>`).join('');
+
+  // Attach mouse drag to handles
+  list.querySelectorAll('.cp-handle').forEach(h=>{
+    h.addEventListener('mousedown',cpDragStart);
+  });
 }
 
-function colMove(i,dir){
-  const cols=S.custCols||DEFAULT_COLS;
-  const j=i+dir;
-  if(j<0||j>=cols.length)return;
-  // Save scroll position - renderCustomers will restore it
-  const listEl=document.getElementById('col-picker-list');
-  S.colPickerScroll=listEl?listEl.scrollTop:0;
-  const moved=cols.splice(i,1)[0];
-  cols.splice(j,0,moved);
+function cpDragStart(e){
+  e.preventDefault();
+  e.stopPropagation();
+  const i=parseInt(e.currentTarget.dataset.i);
+  _cpDrag={idx:i};
+  document.addEventListener('mousemove',cpDragMove);
+  document.addEventListener('mouseup',cpDragEnd,{once:true});
+}
+
+function cpDragMove(e){
+  if(!_cpDrag)return;
+  const list=document.getElementById('col-picker-list');
+  if(!list)return;
+  const rows=[...list.querySelectorAll('.col-pick-row')];
+  for(let i=0;i<rows.length;i++){
+    if(i===_cpDrag.idx)continue;
+    const r=rows[i].getBoundingClientRect();
+    const mid=r.top+r.height/2;
+    if(e.clientY<mid){
+      if(_cpDrag.idx!==i){
+        const cols=S.custCols||DEFAULT_COLS;
+        const moved=cols.splice(_cpDrag.idx,1)[0];
+        cols.splice(i,0,moved);
+        _cpDrag.idx=i;
+        renderColPickerList();
+      }
+      break;
+    } else if(i===rows.length-1&&e.clientY>=mid){
+      if(_cpDrag.idx!==i){
+        const cols=S.custCols||DEFAULT_COLS;
+        const moved=cols.splice(_cpDrag.idx,1)[0];
+        cols.splice(i,0,moved);
+        _cpDrag.idx=i;
+        renderColPickerList();
+      }
+      break;
+    }
+  }
+}
+
+function cpDragEnd(){
+  _cpDrag=null;
+  document.removeEventListener('mousemove',cpDragMove);
+  renderColPickerList();
   renderCustomers();
   saveColPrefs();
 }
