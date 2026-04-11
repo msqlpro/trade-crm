@@ -593,7 +593,7 @@ async function renderCustomers(){
   };
 
   const vcols = visibleCols();
-  const RIGHT_ALIGN = ['last_12m_spend','prior_12m_spend','all_time_spend','invoice_count','first_invoiced','last_order_date','kf_created_date','last_contacted_at'];
+  const RIGHT_ALIGN = ['last_12m_spend','prior_12m_spend','all_time_spend','invoice_count'];
   const theadCols = vcols.map(c=>th(c.key,c.label,RIGHT_ALIGN.includes(c.key)?'right':null)).join('');
   const tbodyRows = rows.map(c=>{
     const cells = vcols.map(col=>renderCell(col.key,c)).join('');
