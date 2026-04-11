@@ -313,8 +313,23 @@ let S = {
   user:null, view:'dashboard', custId:null,
   custPage:0, custSearch:'', custStatus:'',
   taskFilter:'open', etypes:{}, tags:[], custEngagement:'',
-  mlKey:'', importData:null
+  mlKey:'', importData:null, custColsOpen:false,
+  custCols:null  // loaded per user from Supabase
 };
+
+const ALL_COLS = [
+  {key:'status',       label:'Status'},
+  {key:'store_type',   label:'Store Type'},
+  {key:'country_name', label:'Country'},
+  {key:'last_12m_spend', label:'Last 12m'},
+  {key:'prior_12m_spend',label:'Prev 12m'},
+  {key:'all_time_spend', label:'All Time'},
+  {key:'last_order_date',label:'Last Order'},
+  {key:'last_contacted_at',label:'Last Contacted'},
+  {key:'invoice_count',  label:'Invoices'},
+  {key:'kf_code',        label:'Code'},
+];
+const DEFAULT_COLS = ALL_COLS.map(c=>({...c,visible:true}));
 
 // ═══ INIT ═══
 (async()=>{
@@ -328,7 +343,7 @@ async function boot(){
   document.getElementById('auth-screen').hidden=true;
   document.getElementById('app').hidden=false;
   document.getElementById('sb-email').textContent=S.user.email;
-  await Promise.all([loadEtypes(),loadTags(),loadSettings()]);
+  await Promise.all([loadEtypes(),loadTags(),loadSettings(),loadColPrefs()]);
   refreshCounts();go('dashboard');
 }
 
@@ -343,6 +358,23 @@ async function loadTags(){
 async function loadSettings(){
   const{data}=await sb.from('app_settings').select('*');
   if(data)data.forEach(r=>{if(r.key==='mailerlite_api_key')S.mlKey=r.value||'';});
+}
+async function loadColPrefs(){
+  const{data}=await sb.from('user_profiles').select('column_prefs').eq('id',S.user.id).single();
+  if(data?.column_prefs){
+    // Merge saved prefs with ALL_COLS (handles new cols added later)
+    const saved = data.column_prefs;
+    const savedKeys = saved.map(c=>c.key);
+    const merged = saved.map(c=>({...ALL_COLS.find(a=>a.key===c.key)||{key:c.key,label:c.key},visible:c.visible})).filter(c=>ALL_COLS.find(a=>a.key===c.key));
+    const newCols = ALL_COLS.filter(c=>!savedKeys.includes(c.key)).map(c=>({...c,visible:true}));
+    S.custCols = [...merged,...newCols];
+  } else {
+    S.custCols = DEFAULT_COLS.map(c=>({...c}));
+  }
+}
+async function saveColPrefs(){
+  const prefs = S.custCols.map(c=>({key:c.key,visible:c.visible}));
+  await sb.from('user_profiles').upsert({id:S.user.id,column_prefs:prefs});
 }
 async function refreshCounts(){
   const[r1,r2]=await Promise.all([
@@ -542,34 +574,32 @@ async function renderCustomers(){
       <button class="btn btn-sm" onclick="custCSV()" title="Download CSV">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> CSV
       </button>
+      <div style="position:relative">
+        <button class="btn btn-sm" onclick="toggleColPicker()" id="col-picker-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+          Columns
+        </button>
+        <div id="col-picker-panel" style="display:none;position:absolute;right:0;top:calc(100% + 6px);background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--sh-lg);z-index:200;width:220px;padding:8px 0">
+          <div style="padding:6px 12px 4px;font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.06em">Drag to reorder · toggle to show/hide</div>
+          <div id="col-picker-list"></div>
+          <div style="border-top:1px solid var(--border);margin-top:6px;padding:6px 12px 2px;display:flex;gap:6px">
+            <button class="btn btn-xs" onclick="resetColPrefs()">Reset</button>
+          </div>
+        </div>
+      </div>
     </div>
     <div class="table-wrap" style="max-height:calc(100vh - 240px)">
       <table><thead><tr>
         ${th('company_name','Company')}
-        ${th('status','Status')}
-        ${th('store_type','Store Type')}
-        ${th('country_name','Country')}
-        ${th('last_12m_spend','Last 12m','right')}
-        ${th('prior_12m_spend','Prev 12m','right')}
-        ${th('all_time_spend','All Time Spend','right')}
-        ${th('last_order_date','Last Order')}
-        ${th('last_contacted_at','Last Contacted')}
-        ${th('invoice_count','Invoices','right')}
-        ${th('kf_code','Code')}
+        ${visibleCols().map(c=>{
+          const right=['last_12m_spend','prior_12m_spend','all_time_spend','invoice_count'].includes(c.key);
+          return th(c.key,c.label,right?'right':null);
+        }).join('')}
       </tr></thead>
-      <tbody>${!rows.length ? `<tr><td colspan="11" class="no-results">No customers found</td></tr>` : rows.map(c=>`
+      <tbody>${!rows.length ? `<tr><td colspan="${1+visibleCols().length}" class="no-results">No customers found</td></tr>` : rows.map(c=>`
         <tr onclick="go('customer-detail',{id:'${c.id}'})">
           <td><span>${x(c.company_name)}</span></td>
-          <td>${sBadge(c.status)}</td>
-          <td style="color:var(--text2);font-size:12px">${x(c.store_type||'')}</td>
-          <td style="color:var(--text2)">${x(c.country_name||'')}</td>
-          <td style="text-align:right;color:${c.last_12m_spend<0?'var(--red)':'inherit'}" class="td-mono">${c.last_12m_spend!=null?'£'+N2(c.last_12m_spend):'—'}</td>
-          <td style="text-align:right;color:var(--text3)" class="td-mono">${c.prior_12m_spend!=null?'£'+N2(c.prior_12m_spend):'—'}</td>
-          <td style="text-align:right;color:${c.all_time_spend<0?'var(--red)':'inherit'}" class="td-mono">${c.all_time_spend!=null?'£'+N2(c.all_time_spend):'—'}</td>
-          <td style="color:var(--text2)">${c.last_order_date?fd(c.last_order_date):'—'}</td>
-          <td style="color:${!c.last_contacted_at?'var(--text3)':daysSince(c.last_contacted_at)>90?'var(--red)':'var(--text2)'}">${c.last_contacted_at?ago(c.last_contacted_at):'Never'}</td>
-          <td style="text-align:right;color:var(--text2)">${c.invoice_count!=null?c.invoice_count:'—'}</td>
-          <td class="td-mono" style="color:var(--text3)">${x(c.kf_code||'')}</td>
+          ${visibleCols().map(col=>renderCell(col.key,c)).join('')}
         </tr>`).join('')}</tbody></table>
       ${pages>1?`<div class="pagination">
         <button class="btn btn-sm" onclick="custPg(-1)" ${S.custPage===0?'disabled':''}>← Prev</button>
@@ -589,6 +619,82 @@ function custEngagement(v){S.custEngagement=v;S.custPage=0;renderCustomers();}
 function custPg(d){S.custPage+=d;renderCustomers();}
 function daysSince(d){if(!d)return 9999;return Math.floor((Date.now()-new Date(d))/864e5);}
 function custToggleHidden(){S.custShowHidden=!S.custShowHidden;S.custPage=0;renderCustomers();}
+
+function visibleCols(){return (S.custCols||DEFAULT_COLS).filter(c=>c.visible);}
+
+function renderCell(key,c){
+  switch(key){
+    case 'status':       return `<td>${sBadge(c.status)}</td>`;
+    case 'store_type':   return `<td style="color:var(--text2);font-size:12px">${x(c.store_type||'')}</td>`;
+    case 'country_name': return `<td style="color:var(--text2)">${x(c.country_name||'')}</td>`;
+    case 'last_12m_spend': return `<td style="text-align:right;color:${c.last_12m_spend<0?'var(--red)':'inherit'}" class="td-mono">${c.last_12m_spend!=null?'£'+N2(c.last_12m_spend):'—'}</td>`;
+    case 'prior_12m_spend':return `<td style="text-align:right;color:var(--text3)" class="td-mono">${c.prior_12m_spend!=null?'£'+N2(c.prior_12m_spend):'—'}</td>`;
+    case 'all_time_spend': return `<td style="text-align:right;color:${c.all_time_spend<0?'var(--red)':'inherit'}" class="td-mono">${c.all_time_spend!=null?'£'+N2(c.all_time_spend):'—'}</td>`;
+    case 'last_order_date':return `<td style="color:var(--text2)">${c.last_order_date?fd(c.last_order_date):'—'}</td>`;
+    case 'last_contacted_at':return `<td style="color:${!c.last_contacted_at?'var(--text3)':daysSince(c.last_contacted_at)>90?'var(--red)':'var(--text2)'}">${c.last_contacted_at?ago(c.last_contacted_at):'Never'}</td>`;
+    case 'invoice_count':  return `<td style="text-align:right;color:var(--text2)">${c.invoice_count!=null?c.invoice_count:'—'}</td>`;
+    case 'kf_code':        return `<td class="td-mono" style="color:var(--text3)">${x(c.kf_code||'')}</td>`;
+    default: return '<td>—</td>';
+  }
+}
+
+function toggleColPicker(){
+  S.custColsOpen=!S.custColsOpen;
+  const panel=document.getElementById('col-picker-panel');
+  if(!panel)return;
+  if(S.custColsOpen){panel.style.display='block';renderColPickerList();}
+  else panel.style.display='none';
+}
+document.addEventListener('click',e=>{
+  if(S.custColsOpen&&!e.target.closest('#col-picker-panel')&&!e.target.closest('#col-picker-btn')){
+    S.custColsOpen=false;
+    const p=document.getElementById('col-picker-panel');
+    if(p)p.style.display='none';
+  }
+});
+
+function renderColPickerList(){
+  const list=document.getElementById('col-picker-list');
+  if(!list)return;
+  const cols=S.custCols||DEFAULT_COLS;
+  list.innerHTML=cols.map((c,i)=>`
+    <div class="col-pick-row" draggable="true" data-i="${i}"
+      style="display:flex;align-items:center;gap:8px;padding:5px 12px;cursor:grab;user-select:none"
+      ondragstart="colDragStart(event,${i})" ondragover="colDragOver(event,${i})" ondragend="colDragEnd(event)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px;opacity:.4;flex-shrink:0"><line x1="8" y1="6" x2="16" y2="6"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="8" y1="18" x2="16" y2="18"/></svg>
+      <span style="flex:1;font-size:13px">${c.label}</span>
+      <label style="display:flex;align-items:center;cursor:pointer">
+        <input type="checkbox" ${c.visible?'checked':''} onchange="toggleColVisible(${i},this.checked)" style="width:14px;height:14px;accent-color:var(--accent)">
+      </label>
+    </div>`).join('');
+}
+
+let _dragSrc=null;
+function colDragStart(e,i){_dragSrc=i;e.currentTarget.style.opacity='.4';}
+function colDragOver(e,i){
+  e.preventDefault();
+  if(_dragSrc===null||_dragSrc===i)return;
+  const cols=S.custCols||DEFAULT_COLS;
+  const moved=cols.splice(_dragSrc,1)[0];
+  cols.splice(i,0,moved);
+  _dragSrc=i;
+  renderColPickerList();
+  renderCustomers();
+  saveColPrefs();
+}
+function colDragEnd(e){_dragSrc=null;e.currentTarget.style.opacity='';}
+
+function toggleColVisible(i,val){
+  (S.custCols||DEFAULT_COLS)[i].visible=val;
+  renderCustomers();
+  saveColPrefs();
+}
+async function resetColPrefs(){
+  S.custCols=DEFAULT_COLS.map(c=>({...c}));
+  renderColPickerList();
+  renderCustomers();
+  await saveColPrefs();
+}
 function custSort(col){
   if(S.custSort===col)S.custSortAsc=!S.custSortAsc;
   else{S.custSort=col;S.custSortAsc=col!=='all_time_spend';}
