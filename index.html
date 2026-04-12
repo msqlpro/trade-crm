@@ -269,6 +269,7 @@ tbody tr{transition:background .1s}tbody tr:hover{background:var(--surface2);cur
       <button class="sb-item" id="nav-dashboard" onclick="go('dashboard')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>Dashboard</button>
       <button class="sb-item" id="nav-customers" onclick="go('customers')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>Customers<span class="sb-badge" id="sb-cc"></span></button>
       <button class="sb-item" id="nav-pipeline" onclick="go('pipeline')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="4" height="18" rx="1"/><rect x="10" y="8" width="4" height="13" rx="1"/><rect x="17" y="5" width="4" height="16" rx="1"/></svg>Pipeline</button>
+      <button class="sb-item" id="nav-campaigns" onclick="go('campaigns')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>Campaigns</button>
       <button class="sb-item" id="nav-tasks" onclick="go('tasks')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>Tasks<span class="sb-badge" id="sb-tc"></span></button>
       <div class="sb-divider"></div>
       <button class="sb-item" id="nav-import" onclick="go('import')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>Import</button>
@@ -315,7 +316,9 @@ let S = {
   custPage:0, custSearch:'', custStatus:'',
   taskFilter:'open', etypes:{}, tags:[], custEngagement:'',
   mlKey:'', importData:null, custColsOpen:false,
-  custCols:null  // loaded per user from Supabase
+  custCols:null, // loaded per user from Supabase
+  campaigns:[], // [{id,name,colour,description}]
+  campParticipation:{} // {customer_id:{campaign_id:notes}}
 };
 
 const ALL_COLS = [
@@ -384,7 +387,7 @@ async function boot(){
   document.getElementById('auth-screen').hidden=true;
   document.getElementById('app').hidden=false;
   document.getElementById('sb-email').textContent=S.user.email;
-  await Promise.all([loadEtypes(),loadTags(),loadSettings(),loadColPrefs()]);
+  await Promise.all([loadEtypes(),loadTags(),loadSettings(),loadColPrefs(),loadCampaigns()]);
   refreshCounts();go('dashboard');
 }
 
@@ -477,6 +480,7 @@ function go(view,params={}){
     renderTasks();
   }
   else if(view==='import'){setTitle('Import Centre');renderImport();}
+  else if(view==='campaigns'){setTitle('Campaigns');renderCampaigns();}
   else if(view==='settings'){setTitle('Settings');renderSettings();}
 }
 function setTitle(t){document.getElementById('tb-title').textContent=t;}
@@ -593,16 +597,38 @@ async function renderCustomers(){
   };
 
   const vcols = visibleCols();
+  // Campaign cols: each selected campaign becomes a column
+  const campCols = S.campaigns.filter(cam=>S.custCols?
+    (S.custCols.find(c=>c.key==='camp:'+cam.id)?.visible) : false);
   const RIGHT_ALIGN = ['last_12m_spend','prior_12m_spend','all_time_spend','invoice_count'];
-  const theadCols = vcols.map(c=>th(c.key,c.label,RIGHT_ALIGN.includes(c.key)?'right':null)).join('');
+
+  // Load campaign participation for visible rows
+  await loadCampParticipation(rows.map(r=>r.id));
+
+  const campTh = campCols.map(cam=>
+    `<th style="cursor:default;user-select:none;white-space:nowrap">
+      <span style="display:inline-flex;align-items:center;gap:4px">
+        <span style="width:8px;height:8px;border-radius:50%;background:${cam.colour};flex-shrink:0"></span>
+        ${x(cam.name)}
+      </span>
+    </th>`).join('');
+
+  const theadCols = vcols.map(c=>th(c.key,c.label,RIGHT_ALIGN.includes(c.key)?'right':null)).join('')+campTh;
   const tbodyRows = rows.map(c=>{
     const cells = vcols.map(col=>renderCell(col.key,c)).join('');
-    return '<tr onclick="go(\'customer-detail\',{id:\''+c.id+'\'})">'
-      +'<td><span>'+x(c.company_name)+'</span></td>'
-      +cells
-      +'</tr>';
+    const campCells = campCols.map(cam=>{
+      const participation=S.campParticipation[c.id];
+      const inCamp=participation&&cam.id in participation;
+      const notes=inCamp?(participation[cam.id]||''):'';
+      if(!inCamp)return '<td></td>';
+      return `<td title="${x(notes)}" style="text-align:center">
+        <span style="display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:${cam.colour};color:#fff;font-size:11px;font-weight:700" title="${x(notes)}">✓</span>
+        ${notes?`<span style="font-size:10px;color:var(--text3);display:block;max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${x(notes)}</span>`:''}
+      </td>`;
+    }).join('');
+    return '<tr onclick="go(\'customer-detail\',{id:\''+c.id+'\'})">'      +'<td><span>'+x(c.company_name)+'</span></td>'      +cells+campCells      +'</tr>';
   }).join('');
-  const colCount = 1 + vcols.length;
+  const colCount = 1 + vcols.length + campCols.length;
 
   setPage(`
     <div class="toolbar" style="flex-wrap:wrap;gap:8px;flex-shrink:0">
@@ -790,17 +816,30 @@ function renderColPickerList(){
   const list=document.getElementById('col-picker-list');
   if(!list)return;
   const cols=S.custCols||DEFAULT_COLS;
-  list.innerHTML=cols.map((c,i)=>`
-    <div class="col-pick-row" data-i="${i}"
+
+  // Ensure campaign cols exist in custCols
+  S.campaigns.forEach(cam=>{
+    const key='camp:'+cam.id;
+    if(!cols.find(c=>c.key===key)){
+      cols.push({key,label:cam.name,visible:false});
+    }
+  });
+
+  list.innerHTML=cols.map((c,i)=>{
+    const isCamp=c.key.startsWith('camp:');
+    const cam=isCamp?S.campaigns.find(cm=>'camp:'+cm.id===c.key):null;
+    return `<div class="col-pick-row" data-i="${i}"
       style="display:flex;align-items:center;gap:10px;padding:7px 14px;user-select:none;background:${_cpDrag?.idx===i?'var(--surface2)':'transparent'};border-bottom:1px solid var(--border)">
       <span class="cp-handle" data-i="${i}"
         style="font-size:22px;line-height:1;color:var(--text3);cursor:grab;flex-shrink:0;padding:2px 4px;border-radius:4px;transition:background .1s"
         onmouseenter="this.style.background='var(--surface2)'" onmouseleave="this.style.background=''"
       >⠿</span>
-      <span style="flex:1;font-size:13px;font-weight:500">${c.label}</span>
+      ${cam?`<span style="width:8px;height:8px;border-radius:50%;background:${cam.colour};flex-shrink:0"></span>`:''}
+      <span style="flex:1;font-size:13px;font-weight:500">${c.label}${isCamp?'<span style="font-size:10px;color:var(--text3);margin-left:4px">campaign</span>':''}</span>
       <input type="checkbox" ${c.visible?'checked':''} onchange="toggleColVisible(${i},this.checked)"
         style="width:16px;height:16px;accent-color:var(--accent);cursor:pointer;flex-shrink:0">
-    </div>`).join('');
+    </div>`;
+  }).join('');
 
   // Attach mouse drag to handles
   list.querySelectorAll('.cp-handle').forEach(h=>{
@@ -863,6 +902,20 @@ function toggleColVisible(i,val){
   (S.custCols||DEFAULT_COLS)[i].visible=val;
   renderCustomers();
   saveColPrefs();
+}
+
+async function loadCampaigns(){
+  const{data}=await sb.from('campaigns').select('*').order('created_at');
+  S.campaigns=data||[];
+}
+async function loadCampParticipation(customerIds){
+  if(!customerIds.length||!S.campaigns.length){S.campParticipation={};return;}
+  const{data}=await sb.from('campaign_customers').select('campaign_id,customer_id,notes').in('customer_id',customerIds);
+  S.campParticipation={};
+  (data||[]).forEach(r=>{
+    if(!S.campParticipation[r.customer_id])S.campParticipation[r.customer_id]={};
+    S.campParticipation[r.customer_id][r.campaign_id]=r.notes||'';
+  });
 }
 async function resetColPrefs(){
   S.custCols=DEFAULT_COLS.map(c=>({...c}));
@@ -1828,5 +1881,228 @@ function fdt(d){if(!d)return'—';try{return new Date(d).toLocaleDateString('en-
 function ago(d){if(!d)return'';const diff=Date.now()-new Date(d),m=Math.floor(diff/60000);if(m<1)return'just now';if(m<60)return m+'m ago';const h=Math.floor(m/60);if(h<24)return h+'h ago';const dy=Math.floor(h/24);if(dy<7)return dy+'d ago';return fd(d);}
 function past(d){if(!d)return false;return new Date(d)<new Date(new Date().toDateString());}
 </script>
+
+// ========== CAMPAIGNS PAGE ==========
+
+function renderCampaigns(){
+  const camps = S.campaigns;
+  setPage(`
+    <div style="max-width:900px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+        <div>
+          <h2 style="font-size:18px;font-weight:700;margin:0">Campaigns</h2>
+          <p style="font-size:13px;color:var(--text3);margin:4px 0 0">Create mailouts, vouchers and activity campaigns. Upload a customer list to activate participation.</p>
+        </div>
+        <button class="btn btn-primary" onclick="showCreateCampaign()">+ New Campaign</button>
+      </div>
+
+      ${!camps.length ? `
+        <div style="text-align:center;padding:60px 20px;color:var(--text3)">
+          <div style="font-size:48px;margin-bottom:12px">📣</div>
+          <div style="font-size:15px;font-weight:600;margin-bottom:6px">No campaigns yet</div>
+          <div style="font-size:13px">Create your first campaign — e.g. "Shrig 26 Brochure Mailout" or "Summer Voucher"</div>
+        </div>
+      ` : camps.map(cam=>`
+        <div class="detail-card" style="margin-bottom:12px">
+          <div style="display:flex;align-items:center;gap:12px;padding:14px 16px">
+            <div style="width:36px;height:36px;border-radius:8px;background:${cam.colour};flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:18px">📣</div>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:14px;font-weight:600">${x(cam.name)}</div>
+              ${cam.description?`<div style="font-size:12px;color:var(--text3);margin-top:2px">${x(cam.description)}</div>`:''}
+              <div style="font-size:11px;color:var(--text3);margin-top:4px">Created ${new Date(cam.created_at).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'})}</div>
+            </div>
+            <div style="display:flex;gap:8px;flex-shrink:0">
+              <button class="btn btn-sm" onclick="showCampUpload('${cam.id}','${x(cam.name)}')">⬆ Upload Participants</button>
+              <button class="btn btn-sm" onclick="showCampStats('${cam.id}')">View Participants</button>
+              <button class="btn btn-sm" style="color:var(--red)" onclick="deleteCampaign('${cam.id}','${x(cam.name)}')">Delete</button>
+            </div>
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  `);
+}
+
+function showCreateCampaign(){
+  const colours=['#6366f1','#0ea5e9','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#14b8a6'];
+  document.getElementById('modal-overlay').innerHTML=`
+    <div class="modal" style="max-width:480px">
+      <div class="modal-head"><span class="modal-title">New Campaign</span><button class="modal-close" onclick="closeModal()">✕</button></div>
+      <div class="modal-body">
+        <div style="margin-bottom:14px">
+          <label class="f-label">Campaign Name *</label>
+          <input class="f-input" id="camp-name" placeholder="e.g. Shrig 26 Brochure Mailout" autofocus/>
+        </div>
+        <div style="margin-bottom:14px">
+          <label class="f-label">Description (optional)</label>
+          <input class="f-input" id="camp-desc" placeholder="Brief description of this campaign"/>
+        </div>
+        <div style="margin-bottom:14px">
+          <label class="f-label">Colour</label>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
+            ${colours.map(c=>`<div onclick="document.querySelectorAll('.camp-col').forEach(e=>e.style.outline='none');this.style.outline='3px solid var(--text)';document.getElementById('camp-colour').value='${c}'" class="camp-col" style="width:28px;height:28px;border-radius:6px;background:${c};cursor:pointer;outline:${c==='#6366f1'?'3px solid var(--text)':'none'}"></div>`).join('')}
+          </div>
+          <input type="hidden" id="camp-colour" value="#6366f1"/>
+        </div>
+        <div id="camp-err" style="color:var(--red);font-size:12px"></div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="createCampaign()">Create Campaign</button>
+      </div>
+    </div>`;
+  document.getElementById('modal-overlay').style.display='flex';
+}
+
+async function createCampaign(){
+  const name=document.getElementById('camp-name')?.value.trim();
+  const desc=document.getElementById('camp-desc')?.value.trim();
+  const colour=document.getElementById('camp-colour')?.value||'#6366f1';
+  if(!name){document.getElementById('camp-err').textContent='Name is required';return;}
+  const{data,error}=await sb.from('campaigns').insert({name,description:desc||null,colour,created_by:S.user.id}).select().single();
+  if(error){document.getElementById('camp-err').textContent=error.message;return;}
+  S.campaigns.push(data);
+  closeModal();
+  renderCampaigns();
+}
+
+async function deleteCampaign(id,name){
+  if(!confirm(`Delete campaign "${name}"? This will remove all participant records too.`))return;
+  await sb.from('campaigns').delete().eq('id',id);
+  S.campaigns=S.campaigns.filter(c=>c.id!==id);
+  // Remove from custCols if present
+  if(S.custCols)S.custCols=S.custCols.filter(c=>c.key!=='camp:'+id);
+  renderCampaigns();
+}
+
+function showCampUpload(campId,campName){
+  document.getElementById('modal-overlay').innerHTML=`
+    <div class="modal" style="max-width:560px">
+      <div class="modal-head"><span class="modal-title">Upload Participants — ${x(campName)}</span><button class="modal-close" onclick="closeModal()">✕</button></div>
+      <div class="modal-body">
+        <div style="font-size:13px;color:var(--text2);margin-bottom:14px;line-height:1.6">
+          Upload a CSV with a <strong>KF Code</strong> column and an optional <strong>Notes</strong> column.<br>
+          Matching customers will be activated in this campaign. Existing participants will be updated.
+        </div>
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:10px 14px;font-family:var(--mono);font-size:11px;color:var(--text2);margin-bottom:14px">
+          KF Code,Notes<br>
+          TATE02,Sent brochure pack<br>
+          OLIV03,Confirmed interest<br>
+          SCRI27,
+        </div>
+        <input type="file" id="camp-csv" accept=".csv" style="margin-bottom:12px" onchange="previewCampCSV()"/>
+        <div id="camp-preview" style="font-size:13px;color:var(--text2)"></div>
+        <div id="camp-upload-err" style="color:var(--red);font-size:12px;margin-top:8px"></div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-primary" id="camp-upload-btn" onclick="uploadCampParticipants('${campId}')" disabled>Upload</button>
+      </div>
+    </div>`;
+  document.getElementById('modal-overlay').style.display='flex';
+}
+
+let _campRows=[];
+function previewCampCSV(){
+  const file=document.getElementById('camp-csv')?.files[0];
+  if(!file)return;
+  const reader=new FileReader();
+  reader.onload=e=>{
+    const lines=e.target.result.split('\n').filter(l=>l.trim());
+    const headers=lines[0].split(',').map(h=>h.trim().toLowerCase().replace(/"/g,''));
+    const codeIdx=headers.findIndex(h=>h.includes('code')||h==='kf code'||h==='kfcode');
+    const notesIdx=headers.findIndex(h=>h.includes('notes')||h.includes('note'));
+    if(codeIdx===-1){
+      document.getElementById('camp-preview').innerHTML='<span style="color:var(--red)">No KF Code column found</span>';
+      return;
+    }
+    _campRows=[];
+    for(let i=1;i<lines.length;i++){
+      const cols=lines[i].split(',').map(c=>c.trim().replace(/^"|"$/g,''));
+      const code=cols[codeIdx];
+      if(code)_campRows.push({code,notes:notesIdx>=0?(cols[notesIdx]||''):''});
+    }
+    document.getElementById('camp-preview').innerHTML=
+      `<div style="color:var(--green);font-weight:600">✓ ${_campRows.length} customer${_campRows.length!==1?'s':''} found in file</div>
+       <div style="margin-top:6px;font-size:11px;color:var(--text3)">First few: ${_campRows.slice(0,5).map(r=>r.code).join(', ')}${_campRows.length>5?'…':''}</div>`;
+    document.getElementById('camp-upload-btn').disabled=!_campRows.length;
+  };
+  reader.readAsText(file);
+}
+
+async function uploadCampParticipants(campId){
+  const btn=document.getElementById('camp-upload-btn');
+  const err=document.getElementById('camp-upload-err');
+  btn.disabled=true;btn.textContent='Uploading…';
+  if(!_campRows.length){err.textContent='No rows to upload';btn.disabled=false;return;}
+
+  // Resolve kf_codes to customer IDs
+  const codes=_campRows.map(r=>r.code);
+  const{data:customers,error:ce}=await sb.from('customers').select('id,kf_code').in('kf_code',codes);
+  if(ce){err.textContent=ce.message;btn.disabled=false;btn.textContent='Upload';return;}
+
+  const codeMap={};
+  (customers||[]).forEach(c=>codeMap[c.kf_code]=c.id);
+
+  const matched=_campRows.filter(r=>codeMap[r.code]);
+  const unmatched=_campRows.filter(r=>!codeMap[r.code]);
+
+  if(!matched.length){
+    err.textContent=`No customers matched. Check KF codes are correct.`;
+    btn.disabled=false;btn.textContent='Upload';return;
+  }
+
+  // Upsert campaign_customers
+  const rows=matched.map(r=>({
+    campaign_id:campId,
+    customer_id:codeMap[r.code],
+    notes:r.notes||null,
+    activated_at:new Date().toISOString()
+  }));
+
+  const{error:ue}=await sb.from('campaign_customers').upsert(rows,{onConflict:'campaign_id,customer_id'});
+  if(ue){err.textContent=ue.message;btn.disabled=false;btn.textContent='Upload';return;}
+
+  closeModal();
+  const msg=`✓ ${matched.length} customers activated in campaign.${unmatched.length?` (${unmatched.length} unmatched: ${unmatched.slice(0,3).map(r=>r.code).join(', ')}${unmatched.length>3?'…':''})':''}`;
+  alert(msg);
+}
+
+async function showCampStats(campId){
+  const{data}=await sb.from('campaign_customers')
+    .select('notes,activated_at,customers(kf_code,company_name,status)')
+    .eq('campaign_id',campId)
+    .order('activated_at',{ascending:false});
+  const camp=S.campaigns.find(c=>c.id===campId);
+  const rows=data||[];
+  document.getElementById('modal-overlay').innerHTML=`
+    <div class="modal" style="max-width:640px">
+      <div class="modal-head"><span class="modal-title">${x(camp?.name||'Campaign')} — ${rows.length} participants</span><button class="modal-close" onclick="closeModal()">✕</button></div>
+      <div class="modal-body" style="padding:0;max-height:60vh;overflow-y:auto">
+        ${!rows.length?'<div style="padding:24px;text-align:center;color:var(--text3)">No participants yet. Upload a CSV to get started.</div>':
+        `<table style="width:100%;border-collapse:collapse">
+          <thead><tr>
+            <th style="padding:8px 14px;text-align:left;border-bottom:1px solid var(--border);font-size:11px;color:var(--text2);background:var(--surface2)">KF Code</th>
+            <th style="padding:8px 14px;text-align:left;border-bottom:1px solid var(--border);font-size:11px;color:var(--text2);background:var(--surface2)">Company</th>
+            <th style="padding:8px 14px;text-align:left;border-bottom:1px solid var(--border);font-size:11px;color:var(--text2);background:var(--surface2)">Notes</th>
+            <th style="padding:8px 14px;text-align:left;border-bottom:1px solid var(--border);font-size:11px;color:var(--text2);background:var(--surface2)">Activated</th>
+          </tr></thead>
+          <tbody>
+          ${rows.map(r=>`<tr style="border-bottom:1px solid var(--border)">
+            <td style="padding:8px 14px;font-family:var(--mono);font-size:11px">${x(r.customers?.kf_code||'')}</td>
+            <td style="padding:8px 14px;font-size:13px">${x(r.customers?.company_name||'')}</td>
+            <td style="padding:8px 14px;font-size:12px;color:var(--text2)">${x(r.notes||'')}</td>
+            <td style="padding:8px 14px;font-size:11px;color:var(--text3)">${new Date(r.activated_at).toLocaleDateString('en-GB')}</td>
+          </tr>`).join('')}
+          </tbody>
+        </table>`}
+      </div>
+      <div class="modal-foot">
+        <button class="btn" onclick="closeModal()">Close</button>
+      </div>
+    </div>`;
+  document.getElementById('modal-overlay').style.display='flex';
+}
+
 </body>
 </html>
