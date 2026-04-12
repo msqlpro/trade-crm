@@ -1880,7 +1880,6 @@ function fd(d){if(!d)return'—';try{return new Date(d).toLocaleDateString('en-G
 function fdt(d){if(!d)return'—';try{return new Date(d).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});}catch{return String(d);}}
 function ago(d){if(!d)return'';const diff=Date.now()-new Date(d),m=Math.floor(diff/60000);if(m<1)return'just now';if(m<60)return m+'m ago';const h=Math.floor(m/60);if(h<24)return h+'h ago';const dy=Math.floor(h/24);if(dy<7)return dy+'d ago';return fd(d);}
 function past(d){if(!d)return false;return new Date(d)<new Date(new Date().toDateString());}
-</script>
 
 // ========== CAMPAIGNS PAGE ==========
 
@@ -2103,6 +2102,6 @@ async function showCampStats(campId){
     </div>`;
   document.getElementById('modal-overlay').style.display='flex';
 }
-
+</script>
 </body>
 </html>
