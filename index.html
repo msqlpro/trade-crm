@@ -318,7 +318,8 @@ let S = {
   mlKey:'', importData:null, custColsOpen:false,
   custCols:null, // loaded per user from Supabase
   campaigns:[], // [{id,name,colour,description}]
-  campParticipation:{} // {customer_id:{campaign_id:notes}}
+  campParticipation:{}, // {customer_id:{campaign_id:notes}}
+  custEvents:{} // {customer_id:{event_type:{title,occurred_at}}}
 };
 
 const ALL_COLS = [
@@ -597,13 +598,20 @@ async function renderCustomers(){
   };
 
   const vcols = visibleCols();
-  // Campaign cols: each selected campaign becomes a column
+  // Campaign cols
   const campCols = S.campaigns.filter(cam=>S.custCols?
     (S.custCols.find(c=>c.key==='camp:'+cam.id)?.visible) : false);
+  // Event type cols: manual event types selectable as columns
+  const MANUAL_ETYPES=['brochure_sent','offer_sent','email_logged','call_logged',
+    'meeting_requested','meeting_completed','note_logged','internal_comment','order_placed'];
+  const evtCols = S.etypes?Object.entries(S.etypes)
+    .filter(([k])=>MANUAL_ETYPES.includes(k))
+    .filter(([k])=>(S.custCols||DEFAULT_COLS).find(c=>c.key==='evt:'+k)?.visible)
+    .map(([k,v])=>({key:k,...v})):[];
   const RIGHT_ALIGN = ['last_12m_spend','prior_12m_spend','all_time_spend','invoice_count'];
 
-  // Load campaign participation for visible rows
-  await loadCampParticipation(rows.map(r=>r.id));
+  // Load campaign participation and event history for visible rows
+  await Promise.all([loadCampParticipation(rows.map(r=>r.id)),loadCustEvents(rows.map(r=>r.id))]);
 
   const campTh = campCols.map(cam=>
     `<th style="cursor:default;user-select:none;white-space:nowrap">
@@ -613,7 +621,14 @@ async function renderCustomers(){
       </span>
     </th>`).join('');
 
-  const theadCols = vcols.map(c=>th(c.key,c.label,RIGHT_ALIGN.includes(c.key)?'right':null)).join('')+campTh;
+  const evtTh = evtCols.map(et=>
+    `<th style="cursor:default;user-select:none;white-space:nowrap">
+      <span style="display:inline-flex;align-items:center;gap:4px">
+        <span style="width:8px;height:8px;border-radius:50%;background:${et.colour||'#6b7280'};flex-shrink:0"></span>
+        ${x(et.label||et.key)}
+      </span>
+    </th>`).join('');
+  const theadCols = vcols.map(c=>th(c.key,c.label,RIGHT_ALIGN.includes(c.key)?'right':null)).join('')+campTh+evtTh;
   const tbodyRows = rows.map(c=>{
     const cells = vcols.map(col=>renderCell(col.key,c)).join('');
     const campCells = campCols.map(cam=>{
@@ -628,7 +643,7 @@ async function renderCustomers(){
     }).join('');
     return '<tr onclick="go(\'customer-detail\',{id:\''+c.id+'\'})">'      +'<td><span>'+x(c.company_name)+'</span></td>'      +cells+campCells      +'</tr>';
   }).join('');
-  const colCount = 1 + vcols.length + campCols.length;
+  const colCount = 1 + vcols.length + campCols.length + evtCols.length;
 
   setPage(`
     <div class="toolbar" style="flex-wrap:wrap;gap:8px;flex-shrink:0">
@@ -824,18 +839,31 @@ function renderColPickerList(){
       cols.push({key,label:cam.name,visible:false});
     }
   });
+  // Ensure event type cols exist in custCols
+  const PICKER_ETYPES=['brochure_sent','offer_sent','email_logged','call_logged',
+    'meeting_requested','meeting_completed','note_logged','internal_comment','order_placed'];
+  PICKER_ETYPES.forEach(k=>{
+    const key='evt:'+k;
+    if(!cols.find(c=>c.key===key)&&S.etypes[k]){
+      cols.push({key,label:S.etypes[k].label||k,visible:false});
+    }
+  });
 
   list.innerHTML=cols.map((c,i)=>{
     const isCamp=c.key.startsWith('camp:');
+    const isEvt=c.key.startsWith('evt:');
     const cam=isCamp?S.campaigns.find(cm=>'camp:'+cm.id===c.key):null;
+    const etColour=isEvt?(S.etypes[c.key.replace('evt:','')]?.colour||'#6b7280'):null;
+    const dot=(cam||isEvt)?`<span style="width:8px;height:8px;border-radius:50%;background:${cam?cam.colour:etColour};flex-shrink:0"></span>`:'';
+    const tag=isCamp?'campaign':isEvt?'activity':'';
     return `<div class="col-pick-row" data-i="${i}"
       style="display:flex;align-items:center;gap:10px;padding:7px 14px;user-select:none;background:${_cpDrag?.idx===i?'var(--surface2)':'transparent'};border-bottom:1px solid var(--border)">
       <span class="cp-handle" data-i="${i}"
         style="font-size:22px;line-height:1;color:var(--text3);cursor:grab;flex-shrink:0;padding:2px 4px;border-radius:4px;transition:background .1s"
         onmouseenter="this.style.background='var(--surface2)'" onmouseleave="this.style.background=''"
       >⠿</span>
-      ${cam?`<span style="width:8px;height:8px;border-radius:50%;background:${cam.colour};flex-shrink:0"></span>`:''}
-      <span style="flex:1;font-size:13px;font-weight:500">${c.label}${isCamp?'<span style="font-size:10px;color:var(--text3);margin-left:4px">campaign</span>':''}</span>
+      ${dot}
+      <span style="flex:1;font-size:13px;font-weight:500">${c.label}${tag?`<span style="font-size:10px;color:var(--text3);margin-left:4px">${tag}</span>`:''}</span>
       <input type="checkbox" ${c.visible?'checked':''} onchange="toggleColVisible(${i},this.checked)"
         style="width:16px;height:16px;accent-color:var(--accent);cursor:pointer;flex-shrink:0">
     </div>`;
@@ -915,6 +943,22 @@ async function loadCampParticipation(customerIds){
   (data||[]).forEach(r=>{
     if(!S.campParticipation[r.customer_id])S.campParticipation[r.customer_id]={};
     S.campParticipation[r.customer_id][r.campaign_id]=r.notes||'';
+  });
+}
+
+async function loadCustEvents(customerIds){
+  if(!customerIds.length){S.custEvents={};return;}
+  // Get most recent event of each type per customer
+  const{data}=await sb.from('events')
+    .select('customer_id,event_type,title,occurred_at')
+    .in('customer_id',customerIds)
+    .order('occurred_at',{ascending:false});
+  S.custEvents={};
+  (data||[]).forEach(r=>{
+    if(!S.custEvents[r.customer_id])S.custEvents[r.customer_id]={};
+    // Only keep the most recent (first seen since ordered desc)
+    if(!S.custEvents[r.customer_id][r.event_type])
+      S.custEvents[r.customer_id][r.event_type]={title:r.title,occurred_at:r.occurred_at};
   });
 }
 async function resetColPrefs(){
