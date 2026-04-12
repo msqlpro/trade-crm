@@ -125,7 +125,7 @@ tbody tr{transition:background .1s}tbody tr:hover{background:var(--surface2);cur
 .dcard-title{font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--text2)}
 .drow{display:flex;align-items:flex-start;padding:9px 16px;border-bottom:1px solid var(--border);gap:12px}
 .drow:last-child{border-bottom:none}
-.dkey{font-size:11px;color:var(--text3);width:95px;flex-shrink:0;padding-top:1px;font-weight:500}
+.dkey{font-size:11px;color:var(--text3);width:110px;flex-shrink:0;padding-top:1px;font-weight:500}
 .dval{font-size:13px;color:var(--text);flex:1;word-break:break-word}
 /* CONTACTS */
 .contact-item{display:flex;align-items:flex-start;gap:10px;padding:10px 16px;border-bottom:1px solid var(--border)}
@@ -917,7 +917,7 @@ async function renderCustomerDetail(id){
       <button class="btn btn-primary btn-sm" onclick="showAddEditCustomer('${id}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Edit</button>
     </div>
     <div id="ml-status"></div>
-    <div style="display:grid;grid-template-columns:300px 1fr;gap:16px;align-items:start">
+    <div style="display:grid;grid-template-columns:600px 1fr;gap:16px;align-items:start">
       <div>
         <div class="detail-card">
           <div class="dcard-head"><span class="dcard-title">Company Info</span>${sBadge(c.status)}</div>
@@ -939,8 +939,8 @@ async function renderCustomerDetail(id){
           ${c.kf_created_date?dr('KF Created',fd(c.kf_created_date)):''}
 
           ${c.mailerlite_id?dr('MailerLite',`<span style="font-family:var(--mono);font-size:11px">${x(c.mailerlite_id)}</span>`):''}
-          ${c.customer_notes?dr('Int. Notes',`<span style="white-space:pre-wrap;font-size:12px;color:var(--text2)">${x(c.customer_notes)}</span>`):''}
-          ${c.notes?dr('CRM Notes',`<span style="white-space:pre-wrap;font-size:12px;color:var(--text2)">${x(c.notes)}</span>`):''}
+          ${c.customer_notes?dr('Int. Notes',`<span style="white-space:pre-wrap;font-size:12px;color:var(--text2)">${x(c.customer_notes).replace(/\[/g,'').replace(/\]/g,'')}</span>`):''}
+          ${c.notes?dr('CRM Notes',`<span style="white-space:pre-wrap;font-size:12px;color:var(--text2)">${x(c.notes).replace(/\[/g,'').replace(/\]/g,'')}</span>`):''}
         </div>
 
         <div class="detail-card">
