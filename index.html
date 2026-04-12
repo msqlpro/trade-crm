@@ -1041,7 +1041,7 @@ async function renderCustomerDetail(id){
                 </div>
                 ${e.title?`<div class="tl-title">${x(e.title)}</div>`:''}
                 ${e.body?`<div class="tl-body-text">${x(e.body)}</div>`:''}
-                ${e.created_by?`<div class="tl-by">by ${x(e.created_by)}</div>`:''}
+                
               </div>
             </div>`;}).join(''):'<div class="tl-empty">No activity yet. Use "Log Activity" to add the first entry.</div>'}
         </div>
@@ -1732,7 +1732,7 @@ async function saveEvent(custId){
     customer_id:custId,event_type:document.getElementById('le-type').value,
     title:title||null,body:body||null,
     occurred_at:new Date(document.getElementById('le-date').value||new Date()).toISOString(),
-    source:'manual',created_by:S.user.email
+    source:'manual',created_by:S.user.id
   });
   if(error){err.textContent=error.message;return;}
   closeModal();go('customer-detail',{id:custId});
@@ -1854,7 +1854,7 @@ async function saveTask(defCustId){
   if(!title){err.textContent='Task title is required.';return;}
   err.textContent='';
   const custId=document.getElementById('tk-coid').value||defCustId||null;
-  const{error}=await sb.from('tasks').insert({title,customer_id:custId||null,due_date:document.getElementById('tk-due').value||null,status:document.getElementById('tk-status').value,assigned_to:S.user.email});
+  const{error}=await sb.from('tasks').insert({title,customer_id:custId||null,due_date:document.getElementById('tk-due').value||null,status:document.getElementById('tk-status').value,assigned_to:S.user.id});
   if(error){err.textContent=error.message;return;}
   closeModal();refreshCounts();
   if(custId&&S.view==='customer-detail')go('customer-detail',{id:custId});
