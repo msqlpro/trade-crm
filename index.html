@@ -1939,7 +1939,7 @@ function showCreateCampaign(){
         <div style="margin-bottom:14px">
           <label class="f-label">Colour</label>
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
-            ${colours.map(c=>`<div onclick="document.querySelectorAll('.camp-col').forEach(e=>e.style.outline='none');this.style.outline='3px solid var(--text)';document.getElementById('camp-colour').value='${c}'" class="camp-col" style="width:28px;height:28px;border-radius:6px;background:${c};cursor:pointer;outline:${c==='#6366f1'?'3px solid var(--text)':'none'}"></div>`).join('')}
+            ${colours.map(c=>{const sel=c==="#6366f1"?"3px solid var(--text)":"none";return '<div onclick="document.querySelectorAll(\'.camp-col\').forEach(e=>e.style.outline=\'none\');this.style.outline=\'3px solid var(--text)\';document.getElementById(\'camp-colour\').value=\''+c+'\'" class="camp-col" style="width:28px;height:28px;border-radius:6px;background:'+c+';cursor:pointer;outline:'+sel+'"></div>';}).join('')}
           </div>
           <input type="hidden" id="camp-colour" value="#6366f1"/>
         </div>
@@ -2063,7 +2063,8 @@ async function uploadCampParticipants(campId){
   if(ue){err.textContent=ue.message;btn.disabled=false;btn.textContent='Upload';return;}
 
   closeModal();
-  const msg=`✓ ${matched.length} customers activated in campaign.${unmatched.length?` (${unmatched.length} unmatched: ${unmatched.slice(0,3).map(r=>r.code).join(', ')}${unmatched.length>3?'…':''})':''}`;
+  const unmatchedNote=unmatched.length?' ('+unmatched.length+' unmatched: '+unmatched.slice(0,3).map(r=>r.code).join(', ')+(unmatched.length>3?'…':'')+')':'';
+  const msg='✓ '+matched.length+' customer'+(matched.length!==1?'s':'')+' activated in campaign.'+unmatchedNote;
   alert(msg);
 }
 
