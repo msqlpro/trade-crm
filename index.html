@@ -970,7 +970,7 @@ async function renderCustomerDetail(id){
       <button class="btn btn-primary btn-sm" onclick="showAddEditCustomer('${id}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Edit</button>
     </div>
     <div id="ml-status"></div>
-    <div style="display:grid;grid-template-columns:600px 1fr;gap:16px;align-items:start">
+    <div style="display:grid;grid-template-columns:minmax(320px,600px) 1fr;gap:16px;align-items:start">
       <div>
         <div class="detail-card">
           <div class="dcard-head"><span class="dcard-title">Company Info</span>${sBadge(c.status)}</div>
