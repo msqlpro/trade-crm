@@ -928,9 +928,13 @@ function toggleColVisible(i,val){
 }
 
 async function loadCampaigns(){
-  const{data}=await sb.from('campaigns').select('id,name,description,colour,created_at').not('name','is',null).order('created_at');
-  // Filter to only our CRM activity campaigns (exclude old MailerLite campaigns which have no colour)
-  S.campaigns=(data||[]).filter(c=>c.colour);
+  const[campRes,countRes]=await Promise.all([
+    sb.from('campaigns').select('id,name,description,colour,created_at').not('name','is',null).order('created_at'),
+    sb.from('campaign_customers').select('campaign_id',{count:'exact',head:false})
+  ]);
+  const countMap={};
+  (countRes.data||[]).forEach(r=>{countMap[r.campaign_id]=(countMap[r.campaign_id]||0)+1;});
+  S.campaigns=(campRes.data||[]).filter(c=>c.colour).map(c=>({...c,participant_count:countMap[c.id]||0}));
 }
 async function loadCampParticipation(customerIds){
   if(!customerIds.length||!S.campaigns.length){S.campParticipation={};return;}
@@ -2152,9 +2156,9 @@ function renderCampaigns(){
               <div style="font-size:11px;color:var(--text3);margin-top:4px">Created ${new Date(cam.created_at).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'})}</div>
             </div>
             <div style="display:flex;gap:8px;flex-shrink:0">
-              <button class="btn btn-sm" onclick="showCampUpload('${cam.id}','${x(cam.name)}')">⬆ Upload Participants</button>
-              <button class="btn btn-sm" onclick="showCampStats('${cam.id}')">View Participants</button>
-              <button class="btn btn-sm" style="color:var(--red)" onclick="deleteCampaign('${cam.id}','${x(cam.name)}')">Delete</button>
+              <button class="btn btn-sm" data-camp-id="${cam.id}" data-camp-name="${x(cam.name).replace(/"/g,'&quot;')}" onclick="showCampUpload(this.dataset.campId,this.dataset.campName)">⬆ Upload Participants</button>
+              <button class="btn btn-sm" data-camp-id="${cam.id}" onclick="showCampStats(this.dataset.campId)">View Participants</button>
+              <button class="btn btn-sm" style="color:var(--red)" data-camp-id="${cam.id}" data-camp-name="${x(cam.name).replace(/"/g,'&quot;')}" onclick="deleteCampaign(this.dataset.campId,this.dataset.campName)">Delete</button>
             </div>
           </div>
         </div>
@@ -2381,7 +2385,8 @@ async function showCampStats(campId){
   const{data}=await sb.from('campaign_customers')
     .select('notes,activated_at,customers(kf_code,company_name,status)')
     .eq('campaign_id',campId)
-    .order('activated_at',{ascending:false});
+    .order('activated_at',{ascending:false})
+    .limit(2000);
   const camp=S.campaigns.find(c=>c.id===campId);
   const rows=data||[];
   document.getElementById('modal-overlay').innerHTML=`
