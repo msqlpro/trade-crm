@@ -844,7 +844,8 @@ function renderColPickerList(){
         onmouseenter="this.style.background='var(--surface2)'" onmouseleave="this.style.background=''"
       >⠿</span>
       ${dot}
-      <span style="flex:1;font-size:13px;font-weight:500">${c.label}${isCamp?'<span style="font-size:10px;color:var(--text3);margin-left:4px">activity</span>':''}</span>
+      <span style="flex:1;font-size:13px;font-weight:500;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.label}${isCamp?'<span style="font-size:10px;color:var(--text3);margin-left:4px">activity</span>':''}</span>
+      ${isCamp&&cam?`<button onclick="event.stopPropagation();showEditActivity('${cam.id}')" title="Edit" style="border:none;background:none;cursor:pointer;color:var(--text3);font-size:13px;padding:2px 3px;flex-shrink:0">✎</button><button onclick="event.stopPropagation();deleteActivityFromPicker('${cam.id}','${c.i}')" title="Delete" style="border:none;background:none;cursor:pointer;color:var(--text3);font-size:15px;padding:2px 3px;flex-shrink:0;line-height:1">×</button>`:''}
       <input type="checkbox" ${c.visible?'checked':''} onchange="toggleColVisible(${i},this.checked)"
         style="width:16px;height:16px;accent-color:var(--accent);cursor:pointer;flex-shrink:0">
     </div>`;
@@ -1899,6 +1900,66 @@ function pickActColour(el,colour){
   const inp=document.getElementById('ca-colour');
   if(inp)inp.value=colour;
 }
+function showEditActivity(campId){
+  const cam=S.campaigns.find(c=>c.id===campId);
+  if(!cam)return;
+  const colours=['#6366f1','#0ea5e9','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#14b8a6'];
+  document.getElementById('modal-overlay').innerHTML=`
+    <div class="modal" style="max-width:460px">
+      <div class="modal-head"><span class="modal-title">Edit Activity</span><button class="modal-close" onclick="closeModal()">✕</button></div>
+      <div class="modal-body">
+        <div style="margin-bottom:14px">
+          <label class="f-label">Activity Name *</label>
+          <input class="f-input" id="ea-name" value="${x(cam.name)}" autofocus/>
+        </div>
+        <div style="margin-bottom:14px">
+          <label class="f-label">Description (optional)</label>
+          <input class="f-input" id="ea-desc" value="${x(cam.description||'')}"/>
+        </div>
+        <div style="margin-bottom:14px">
+          <label class="f-label">Colour</label>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
+            ${colours.map(c=>{const sel=c===cam.colour?'3px solid var(--text)':'none';return '<div onclick="pickActColour(this,\''+c+'\')" class="ca-col" style="width:28px;height:28px;border-radius:6px;background:'+c+';cursor:pointer;outline:'+sel+'"></div>';}).join('')}
+          </div>
+          <input type="hidden" id="ca-colour" value="${cam.colour||'#6366f1'}"/>
+        </div>
+        <div id="ea-err" style="color:var(--red);font-size:12px"></div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="saveEditActivity('${campId}')">Save</button>
+      </div>
+    </div>`;
+  const mo=document.getElementById('modal-overlay');mo.hidden=false;mo.style.zIndex='500';
+}
+
+async function saveEditActivity(campId){
+  const name=document.getElementById('ea-name')?.value.trim();
+  const desc=document.getElementById('ea-desc')?.value.trim();
+  const colour=document.getElementById('ca-colour')?.value||'#6366f1';
+  if(!name){document.getElementById('ea-err').textContent='Name is required';return;}
+  const{error}=await sb.from('campaigns').update({name,description:desc||null,colour}).eq('id',campId);
+  if(error){document.getElementById('ea-err').textContent=error.message;return;}
+  // Update local state
+  const cam=S.campaigns.find(c=>c.id===campId);
+  if(cam){cam.name=name;cam.description=desc||null;cam.colour=colour;}
+  // Update label in custCols
+  if(S.custCols){const col=S.custCols.find(c=>c.key==='camp:'+campId);if(col)col.label=name;}
+  await saveColPrefs();
+  closeModal();
+  renderCustomers();
+}
+
+async function deleteActivityFromPicker(campId){
+  if(!confirm('Delete this activity? All participant records will also be removed.'))return;
+  const{error}=await sb.from('campaigns').delete().eq('id',campId);
+  if(error){alert(error.message);return;}
+  S.campaigns=S.campaigns.filter(c=>c.id!==campId);
+  if(S.custCols)S.custCols=S.custCols.filter(c=>c.key!=='camp:'+campId);
+  await saveColPrefs();
+  renderCustomers();
+}
+
 function showCreateActivityFromPicker(){
   const colours=['#6366f1','#0ea5e9','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#14b8a6'];
   document.getElementById('modal-overlay').innerHTML=`
