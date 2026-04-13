@@ -1294,6 +1294,8 @@ const IMPORT_FIELDS=[
   {key:'_email3',label:'Contact 3 Email'},
   {key:'_name4',label:'Contact 4 Name'},
   {key:'_email4',label:'Contact 4 Email'},
+  // Activities (links to campaign_customers)
+  {key:'_activity',label:'Activity (Campaign Name)'},
 ];
 
 function renderImport(){
@@ -1593,6 +1595,18 @@ async function startImport(){
         if(nm||em){
           const parts=(nm||'').split(' ');
           await sb.from('contacts').insert({customer_id:custId,first_name:parts[0]||null,last_name:parts.slice(1).join(' ')||null,email:em,is_primary:false}).select();
+        }
+      }
+      // Activity / Campaign linking
+      const actVal=gc('_activity');
+      if(actVal){
+        // Find matching campaign by name (case-insensitive)
+        const cam=S.campaigns.find(c=>c.name.toLowerCase()===actVal.toLowerCase().trim());
+        if(cam){
+          await sb.from('campaign_customers').upsert(
+            {campaign_id:cam.id,customer_id:custId,activated_at:new Date().toISOString()},
+            {onConflict:'campaign_id,customer_id'}
+          );
         }
       }
     }catch(err){errors++;errLog.push(`Row ${i+2}: ${err.message}`);}
