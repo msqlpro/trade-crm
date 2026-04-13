@@ -389,6 +389,13 @@ async function boot(){
   document.getElementById('app').hidden=false;
   document.getElementById('sb-email').textContent=S.user.email;
   await Promise.all([loadEtypes(),loadTags(),loadSettings(),loadColPrefs(),loadCampaigns()]);
+  // Sync camp: col labels with live campaign names (in case renamed)
+  if(S.custCols)S.custCols.forEach(c=>{
+    if(c.key.startsWith('camp:')){
+      const cam=S.campaigns.find(cm=>'camp:'+cm.id===c.key);
+      if(cam)c.label=cam.name;
+    }
+  });
   refreshCounts();go('dashboard');
 }
 
@@ -410,7 +417,11 @@ async function loadColPrefs(){
     if(data?.column_prefs){
       const saved = data.column_prefs;
       const savedKeys = saved.map(c=>c.key);
-      const merged = saved.map(c=>({...ALL_COLS.find(a=>a.key===c.key)||{key:c.key,label:c.key},visible:c.visible})).filter(c=>ALL_COLS.find(a=>a.key===c.key));
+      // Preserve standard cols AND camp: activity cols (not in ALL_COLS but valid)
+      const merged = saved.map(c=>{
+        const base = ALL_COLS.find(a=>a.key===c.key) || (c.key.startsWith('camp:')?{key:c.key,label:c.key}:null);
+        return base ? {...base,visible:c.visible} : null;
+      }).filter(Boolean);
       const newCols = ALL_COLS.filter(c=>!savedKeys.includes(c.key)).map(c=>({...c,visible:true}));
       S.custCols = [...merged,...newCols];
     } else {
