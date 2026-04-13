@@ -272,7 +272,7 @@ tbody tr{transition:background .1s}tbody tr:hover{background:var(--surface2);cur
       <button class="sb-item" id="nav-campaigns" onclick="go('campaigns')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>Campaigns</button>
       <button class="sb-item" id="nav-tasks" onclick="go('tasks')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>Tasks<span class="sb-badge" id="sb-tc"></span></button>
       <div class="sb-divider"></div>
-      <button class="sb-item" id="nav-import" onclick="go('import')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>Import</button>
+      <button class="sb-item" id="nav-import" onclick="go('import')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>Import Customers</button>
       <button class="sb-item" id="nav-settings" onclick="go('settings')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Settings</button>
     </div>
     <div class="sb-foot">
@@ -1329,7 +1329,7 @@ function renderImport(){
         </div>
         <div style="display:flex;gap:8px">
           <button class="btn" onclick="importReset()">Cancel</button>
-          <button class="btn btn-primary" onclick="startImport()">Import <span id="import-row-count"></span> rows</button>
+          <button class="btn btn-primary" onclick="startImport()">Import Customers <span id="import-row-count"></span></button>
         </div>
       </div>
 
@@ -2275,7 +2275,7 @@ function showCampUpload(campId,campName){
       </div>
       <div class="modal-foot">
         <button class="btn" onclick="closeModal()">Cancel</button>
-        <button class="btn btn-primary" id="camp-upload-btn" onclick="uploadCampParticipants('${campId}')" disabled>Upload</button>
+        <button class="btn btn-primary" id="camp-upload-btn" onclick="uploadCampParticipants('${campId}')">Upload</button>
       </div>
     </div>`;
   document.getElementById('modal-overlay').hidden=false;
@@ -2289,7 +2289,7 @@ function previewCampCSV(){
     const lines=e.target.result.split('\n').filter(l=>l.trim());
     const headers=lines[0].split(',').map(h=>h.trim().toLowerCase().replace(/"/g,''));
     const codeIdx=headers.findIndex(h=>h.includes('code')||h==='kf code'||h==='kfcode');
-    const notesIdx=headers.findIndex(h=>h.includes('notes')||h.includes('note'));
+    const notesIdx=headers.findIndex(h=>h.includes('activity')||h.includes('notes')||h.includes('note'));
     if(codeIdx===-1){
       document.getElementById('camp-preview').innerHTML='<span style="color:var(--red)">No KF Code column found</span>';
       return;
@@ -2312,7 +2312,7 @@ async function uploadCampParticipants(campId){
   const btn=document.getElementById('camp-upload-btn');
   const err=document.getElementById('camp-upload-err');
   btn.disabled=true;btn.textContent='Uploading…';
-  if(!_campRows.length){err.textContent='No rows to upload';btn.disabled=false;return;}
+  if(!_campRows.length){err.textContent='Please select a CSV file first and wait for the preview to appear';btn.disabled=false;btn.textContent='Upload';return;}
 
   // Resolve kf_codes to customer IDs
   const codes=_campRows.map(r=>r.code);
