@@ -914,8 +914,9 @@ function toggleColVisible(i,val){
 }
 
 async function loadCampaigns(){
-  const{data}=await sb.from('campaigns').select('*').order('created_at');
-  S.campaigns=data||[];
+  const{data}=await sb.from('campaigns').select('id,name,description,colour,created_at').not('name','is',null).order('created_at');
+  // Filter to only our CRM activity campaigns (exclude old MailerLite campaigns which have no colour)
+  S.campaigns=(data||[]).filter(c=>c.colour);
 }
 async function loadCampParticipation(customerIds){
   if(!customerIds.length||!S.campaigns.length){S.campParticipation={};return;}
