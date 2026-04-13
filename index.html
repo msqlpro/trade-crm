@@ -389,13 +389,15 @@ async function boot(){
   document.getElementById('app').hidden=false;
   document.getElementById('sb-email').textContent=S.user.email;
   await Promise.all([loadEtypes(),loadTags(),loadSettings(),loadColPrefs(),loadCampaigns()]);
-  // Sync camp: col labels with live campaign names (in case renamed)
-  if(S.custCols)S.custCols.forEach(c=>{
-    if(c.key.startsWith('camp:')){
+  // Sync camp: col labels with live campaign names, and prune deleted ones
+  if(S.custCols){
+    S.custCols=S.custCols.filter(c=>{
+      if(!c.key.startsWith('camp:'))return true;
       const cam=S.campaigns.find(cm=>'camp:'+cm.id===c.key);
-      if(cam)c.label=cam.name;
-    }
-  });
+      if(cam){c.label=cam.name;} // keep + update label
+      return !!cam; // prune if campaign no longer exists
+    });
+  }
   refreshCounts();go('dashboard');
 }
 
