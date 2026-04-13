@@ -2206,7 +2206,7 @@ function showCampUpload(campId,campName){
     <div class="modal" style="max-width:600px">
       <div class="modal-head"><span class="modal-title">Upload Participants — ${x(campName)}</span><button class="modal-close" onclick="closeModal()">✕</button></div>
       <div class="modal-body">
-        <div style="background:var(--surface2);border-radius:8px;padding:14px 16px;margin-bottom:16px;border:1px solid var(--border)">
+        <div style="background:#dcfce7;border:1px solid #86efac;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:13px;color:#166534"><strong>✓ Activity already selected</strong> — you clicked Upload on <em>${x(campName)}</em>. Your CSV just needs the KF codes of the customers who were part of it. The Activity Notes column is optional.</div><div style="background:var(--surface2);border-radius:8px;padding:14px 16px;margin-bottom:16px;border:1px solid var(--border)">
           <div style="font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px">How to prepare your CSV</div>
           <div style="display:flex;align-items:stretch;gap:0;margin-bottom:14px">
             <div style="flex:1;background:var(--surface);border:1px solid var(--border);border-radius:6px 0 0 6px;padding:10px 8px;text-align:center">
@@ -2237,14 +2237,14 @@ function showCampUpload(campId,campName){
             <div style="padding:6px 10px;border-top:1px solid var(--border);font-family:var(--mono);font-weight:700">KF Code</div>
             <div style="padding:6px 10px;border-top:1px solid var(--border);color:var(--red);font-weight:600">✓ Yes</div>
             <div style="padding:6px 10px;border-top:1px solid var(--border);color:var(--text2)">Customer's KashFlow code from the Code column in the customer list (e.g. TATE02)</div>
-            <div style="padding:6px 10px;border-top:1px solid var(--border);font-family:var(--mono);font-weight:700;background:var(--surface2)">Activity</div>
+            <div style="padding:6px 10px;border-top:1px solid var(--border);font-family:var(--mono);font-weight:700;background:var(--surface2)">Activity Notes</div>
             <div style="padding:6px 10px;border-top:1px solid var(--border);color:var(--text3);background:var(--surface2)">Optional</div>
-            <div style="padding:6px 10px;border-top:1px solid var(--border);color:var(--text2);background:var(--surface2)">Per-customer activity note e.g. "Sent physical pack", "Email only" — leave blank if not needed</div>
+            <div style="padding:6px 10px;border-top:1px solid var(--border);color:var(--text2);background:var(--surface2)">Optional note about this customer's participation e.g. "Sent physical pack", "Email only" — leave blank if not needed</div>
           </div>
           <div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:5px">Example — ${x(campName)}</div>
           <div style="background:#1a1a2e;border-radius:6px;padding:10px 14px;font-family:var(--mono);font-size:11px;line-height:2;margin-bottom:10px">
             <span style="color:#555">── row 1 (headers) ──</span><br>
-            <span style="color:#7dcfff">KF Code</span><span style="color:#555">,</span><span style="color:#7dcfff">Activity</span><br>
+            <span style="color:#7dcfff">KF Code</span><span style="color:#555">,</span><span style="color:#7dcfff">Activity Notes</span><br>
             <span style="color:#555">── rows 2 onwards (one customer per row) ──</span><br>
             <span style="color:#a6e3a1">TATE02</span><span style="color:#555">,</span><span style="color:#f9e2af">Sent physical pack</span><br>
             <span style="color:#a6e3a1">OLIV03</span><span style="color:#555">,</span><span style="color:#f9e2af">Email PDF version only</span><br>
