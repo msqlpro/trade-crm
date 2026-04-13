@@ -2203,20 +2203,59 @@ async function deleteCampaign(id,name){
 
 function showCampUpload(campId,campName){
   document.getElementById('modal-overlay').innerHTML=`
-    <div class="modal" style="max-width:560px">
+    <div class="modal" style="max-width:600px">
       <div class="modal-head"><span class="modal-title">Upload Participants — ${x(campName)}</span><button class="modal-close" onclick="closeModal()">✕</button></div>
       <div class="modal-body">
-        <div style="font-size:13px;color:var(--text2);margin-bottom:14px;line-height:1.6">
-          Upload a CSV with a <strong>KF Code</strong> column and an optional <strong>Notes</strong> column.<br>
-          Matching customers will be activated in this campaign. Existing participants will be updated.
+        <div style="background:var(--surface2);border-radius:8px;padding:14px 16px;margin-bottom:16px;border:1px solid var(--border)">
+          <div style="font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px">How to prepare your CSV</div>
+          <div style="display:flex;align-items:stretch;gap:0;margin-bottom:14px">
+            <div style="flex:1;background:var(--surface);border:1px solid var(--border);border-radius:6px 0 0 6px;padding:10px 8px;text-align:center">
+              <div style="font-size:18px;margin-bottom:3px">1️⃣</div>
+              <div style="font-size:10px;font-weight:600;color:var(--text)">Open Excel<br>or Sheets</div>
+            </div>
+            <div style="display:flex;align-items:center;color:var(--text3);font-size:14px;padding:0 3px">›</div>
+            <div style="flex:1;background:var(--surface);border:1px solid var(--border);padding:10px 8px;text-align:center">
+              <div style="font-size:18px;margin-bottom:3px">2️⃣</div>
+              <div style="font-size:10px;font-weight:600;color:var(--text)">Add two<br>columns</div>
+            </div>
+            <div style="display:flex;align-items:center;color:var(--text3);font-size:14px;padding:0 3px">›</div>
+            <div style="flex:1;background:var(--surface);border:1px solid var(--border);padding:10px 8px;text-align:center">
+              <div style="font-size:18px;margin-bottom:3px">3️⃣</div>
+              <div style="font-size:10px;font-weight:600;color:var(--text)">Fill in<br>KF codes</div>
+            </div>
+            <div style="display:flex;align-items:center;color:var(--text3);font-size:14px;padding:0 3px">›</div>
+            <div style="flex:1;background:var(--surface);border:1px solid var(--border);border-radius:0 6px 6px 0;padding:10px 8px;text-align:center">
+              <div style="font-size:18px;margin-bottom:3px">4️⃣</div>
+              <div style="font-size:10px;font-weight:600;color:var(--text)">Save as<br>CSV &amp; upload</div>
+            </div>
+          </div>
+          <div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:6px">Column guide</div>
+          <div style="display:grid;grid-template-columns:110px 70px 1fr;border:1px solid var(--border);border-radius:6px;overflow:hidden;font-size:11px;margin-bottom:10px">
+            <div style="background:var(--accent);color:#fff;padding:6px 10px;font-weight:700">Column</div>
+            <div style="background:var(--accent);color:#fff;padding:6px 10px;font-weight:700">Required?</div>
+            <div style="background:var(--accent);color:#fff;padding:6px 10px;font-weight:700">What to enter</div>
+            <div style="padding:6px 10px;border-top:1px solid var(--border);font-family:var(--mono);font-weight:700">KF Code</div>
+            <div style="padding:6px 10px;border-top:1px solid var(--border);color:var(--red);font-weight:600">✓ Yes</div>
+            <div style="padding:6px 10px;border-top:1px solid var(--border);color:var(--text2)">Customer's KashFlow code from the Code column in the customer list (e.g. TATE02)</div>
+            <div style="padding:6px 10px;border-top:1px solid var(--border);font-family:var(--mono);font-weight:700;background:var(--surface2)">Notes</div>
+            <div style="padding:6px 10px;border-top:1px solid var(--border);color:var(--text3);background:var(--surface2)">Optional</div>
+            <div style="padding:6px 10px;border-top:1px solid var(--border);color:var(--text2);background:var(--surface2)">Per-customer note e.g. "Sent physical pack", "Email only" — leave blank if not needed</div>
+          </div>
+          <div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:5px">Example — ${x(campName)}</div>
+          <div style="background:#1a1a2e;border-radius:6px;padding:10px 14px;font-family:var(--mono);font-size:11px;line-height:2;margin-bottom:10px">
+            <span style="color:#555">── row 1 (headers) ──</span><br>
+            <span style="color:#7dcfff">KF Code</span><span style="color:#555">,</span><span style="color:#7dcfff">Notes</span><br>
+            <span style="color:#555">── rows 2 onwards (one customer per row) ──</span><br>
+            <span style="color:#a6e3a1">TATE02</span><span style="color:#555">,</span><span style="color:#f9e2af">Sent physical brochure pack</span><br>
+            <span style="color:#a6e3a1">OLIV03</span><span style="color:#555">,</span><span style="color:#f9e2af">Email PDF version only</span><br>
+            <span style="color:#a6e3a1">SCRI27</span><span style="color:#555">,</span>
+          </div>
+          <div style="font-size:11px;color:var(--text3);line-height:1.7">
+            💡 Headers are required · KF codes are case-sensitive · If a customer is already linked their notes will be updated · Unmatched codes are reported but won't stop the upload
+          </div>
         </div>
-        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:10px 14px;font-family:var(--mono);font-size:11px;color:var(--text2);margin-bottom:14px">
-          KF Code,Notes<br>
-          TATE02,Sent brochure pack<br>
-          OLIV03,Confirmed interest<br>
-          SCRI27,
-        </div>
-        <input type="file" id="camp-csv" accept=".csv" style="margin-bottom:12px" onchange="previewCampCSV()"/>
+        <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:8px">Select your CSV file</div>
+        <input type="file" id="camp-csv" accept=".csv" style="margin-bottom:12px;font-size:13px" onchange="previewCampCSV()"/>
         <div id="camp-preview" style="font-size:13px;color:var(--text2)"></div>
         <div id="camp-upload-err" style="color:var(--red);font-size:12px;margin-top:8px"></div>
       </div>
@@ -2225,9 +2264,8 @@ function showCampUpload(campId,campName){
         <button class="btn btn-primary" id="camp-upload-btn" onclick="uploadCampParticipants('${campId}')" disabled>Upload</button>
       </div>
     </div>`;
-  document.getElementById('modal-overlay').style.display='flex';
+  document.getElementById('modal-overlay').hidden=false;
 }
-
 let _campRows=[];
 function previewCampCSV(){
   const file=document.getElementById('camp-csv')?.files[0];
