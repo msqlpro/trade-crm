@@ -2158,6 +2158,7 @@ function renderCampaigns(){
             <div style="display:flex;gap:8px;flex-shrink:0">
               <button class="btn btn-sm" data-camp-id="${cam.id}" data-camp-name="${x(cam.name).replace(/"/g,'&quot;')}" onclick="showCampUpload(this.dataset.campId,this.dataset.campName)">⬆ Upload Participants</button>
               <button class="btn btn-sm" data-camp-id="${cam.id}" onclick="showCampStats(this.dataset.campId)">View Participants</button>
+              <button class="btn btn-sm" data-camp-id="${cam.id}" onclick="showCampFailures(this.dataset.campId)" style="${cam.last_upload_failures&&cam.last_upload_failures.length?'color:var(--red);border-color:var(--red)':'color:var(--text3)'}" title="${cam.last_upload_failures&&cam.last_upload_failures.length?cam.last_upload_failures.length+' failed codes from last upload':'No failures from last upload'}">⚠ Failed (${cam.last_upload_failures?cam.last_upload_failures.length:0})</button>
               <button class="btn btn-sm" style="color:var(--red)" data-camp-id="${cam.id}" data-camp-name="${x(cam.name).replace(/"/g,'&quot;')}" onclick="deleteCampaign(this.dataset.campId,this.dataset.campName)">Delete</button>
             </div>
           </div>
@@ -2352,6 +2353,16 @@ async function uploadCampParticipants(campId){
     if(ue){err.textContent='Save error: '+ue.message;btn.disabled=false;btn.textContent='Upload';return;}
   }
 
+  // Save failure codes to DB for persistent "Failed Participants" view
+  const failureCodes=unmatched.map(r=>r.code);
+  await sb.from('campaigns').update({
+    last_upload_failures:failureCodes.length?failureCodes:null,
+    last_upload_at:new Date().toISOString()
+  }).eq('id',campId);
+  // Update local state
+  const camLocal=S.campaigns.find(c=>c.id===campId);
+  if(camLocal){camLocal.last_upload_failures=failureCodes.length?failureCodes:null;camLocal.last_upload_at=new Date().toISOString();}
+
   // Show result in modal instead of alert
   document.getElementById('modal-overlay').innerHTML=`
     <div class="modal" style="max-width:480px">
@@ -2376,6 +2387,33 @@ async function uploadCampParticipants(campId){
       </div>
       <div class="modal-foot">
         <button class="btn btn-primary" onclick="closeModal()">Done</button>
+      </div>
+    </div>`;
+  document.getElementById('modal-overlay').hidden=false;
+}
+
+function showCampFailures(campId){
+  const cam=S.campaigns.find(c=>c.id===campId);
+  const failures=cam?.last_upload_failures||[];
+  const uploadDate=cam?.last_upload_at?new Date(cam.last_upload_at).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}):'unknown';
+  document.getElementById('modal-overlay').innerHTML=`
+    <div class="modal" style="max-width:500px">
+      <div class="modal-head"><span class="modal-title">Failed Participants — ${x(cam?.name||'')}</span><button class="modal-close" onclick="closeModal()">✕</button></div>
+      <div class="modal-body">
+        ${!failures.length?
+          '<div style="text-align:center;padding:30px;color:var(--text3)"><div style="font-size:32px;margin-bottom:8px">✓</div><div style="font-size:14px;font-weight:600">No failures</div><div style="font-size:12px;margin-top:4px">All codes in the last upload matched successfully</div></div>'
+          :`<div style="margin-bottom:12px;font-size:13px;color:var(--text2)">
+            <strong>${failures.length} KF code${failures.length!==1?'s':''}</strong> from the last upload (${uploadDate}) could not be matched to customers in the CRM.
+          </div>
+          <div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:12px 14px;margin-bottom:12px">
+            ${failures.map(code=>`<span style="font-family:var(--mono);font-size:12px;background:var(--surface);border:1px solid var(--red);color:var(--red);border-radius:4px;padding:2px 8px;margin:3px;display:inline-block">${x(code)}</span>`).join('')}
+          </div>
+          <div style="font-size:12px;color:var(--text3);line-height:1.7">
+            💡 These codes were not found in the customer list. Check for typos, or the customer may need to be imported first via <strong>Import Customers</strong>.
+          </div>`}
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-primary" onclick="closeModal()">Close</button>
       </div>
     </div>`;
   document.getElementById('modal-overlay').hidden=false;
