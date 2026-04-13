@@ -1752,7 +1752,7 @@ function openModal(title,body,foot,large=false){
   document.getElementById('modal-box').className='modal'+(large?' modal-lg':'');
   document.getElementById('modal-overlay').hidden=false;
 }
-function closeModal(){document.getElementById('modal-overlay').hidden=true;}
+function closeModal(){const o=document.getElementById('modal-overlay');o.hidden=true;o.style.zIndex='';}
 
 function showLogEvent(custId){
   const opts=Object.values(S.etypes).length
@@ -1868,7 +1868,7 @@ function showLinkActivity(custId){
         <button class="btn btn-primary" onclick="saveLinkActivity('${custId}')">Link</button>
       </div>
     </div>`;
-  document.getElementById('modal-overlay').style.display='flex';
+  document.getElementById('modal-overlay').hidden=false;
 }
 
 async function saveLinkActivity(custId){
@@ -1896,10 +1896,6 @@ function pickActColour(el,colour){
   if(inp)inp.value=colour;
 }
 function showCreateActivityFromPicker(){
-  // Close the col picker first, then show create modal, then reopen
-  S.custColsOpen=false;
-  const p=document.getElementById('col-picker-panel');
-  if(p)p.style.display='none';
   const colours=['#6366f1','#0ea5e9','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#14b8a6'];
   document.getElementById('modal-overlay').innerHTML=`
     <div class="modal" style="max-width:460px">
@@ -1927,7 +1923,7 @@ function showCreateActivityFromPicker(){
         <button class="btn btn-primary" onclick="createActivityFromPicker()">Create & Add Column</button>
       </div>
     </div>`;
-  document.getElementById('modal-overlay').style.display='flex';
+  const mo=document.getElementById('modal-overlay');mo.hidden=false;mo.style.zIndex='500';
 }
 
 async function createActivityFromPicker(){
@@ -1943,8 +1939,8 @@ async function createActivityFromPicker(){
   cols.push({key:'camp:'+data.id,label:data.name,visible:true});
   await saveColPrefs();
   closeModal();
-  // Reopen column picker
-  S.custColsOpen=true;
+  document.getElementById('modal-overlay').style.zIndex='';
+  // Picker stays open — just re-render
   renderCustomers();
 }
 
