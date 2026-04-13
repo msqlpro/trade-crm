@@ -1876,7 +1876,7 @@ function showLinkActivity(custId){
           </select>
         </div>
         <div style="margin-bottom:14px">
-          <label class="f-label">Notes (optional)</label>
+          <label class="f-label">Activity note (optional)</label>
           <input class="f-input" id="la-notes" placeholder="e.g. Sent physical pack, confirmed interest…"/>
         </div>
         <div id="la-err" style="color:var(--red);font-size:12px"></div>
@@ -2231,22 +2231,22 @@ function showCampUpload(campId,campName){
           </div>
           <div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:6px">Column guide</div>
           <div style="display:grid;grid-template-columns:110px 70px 1fr;border:1px solid var(--border);border-radius:6px;overflow:hidden;font-size:11px;margin-bottom:10px">
-            <div style="background:var(--accent);color:#fff;padding:6px 10px;font-weight:700">Column</div>
+            <div style="background:var(--accent);color:#fff;padding:6px 10px;font-weight:700">Column Name</div>
             <div style="background:var(--accent);color:#fff;padding:6px 10px;font-weight:700">Required?</div>
             <div style="background:var(--accent);color:#fff;padding:6px 10px;font-weight:700">What to enter</div>
             <div style="padding:6px 10px;border-top:1px solid var(--border);font-family:var(--mono);font-weight:700">KF Code</div>
             <div style="padding:6px 10px;border-top:1px solid var(--border);color:var(--red);font-weight:600">✓ Yes</div>
             <div style="padding:6px 10px;border-top:1px solid var(--border);color:var(--text2)">Customer's KashFlow code from the Code column in the customer list (e.g. TATE02)</div>
-            <div style="padding:6px 10px;border-top:1px solid var(--border);font-family:var(--mono);font-weight:700;background:var(--surface2)">Notes</div>
+            <div style="padding:6px 10px;border-top:1px solid var(--border);font-family:var(--mono);font-weight:700;background:var(--surface2)">Activity</div>
             <div style="padding:6px 10px;border-top:1px solid var(--border);color:var(--text3);background:var(--surface2)">Optional</div>
-            <div style="padding:6px 10px;border-top:1px solid var(--border);color:var(--text2);background:var(--surface2)">Per-customer note e.g. "Sent physical pack", "Email only" — leave blank if not needed</div>
+            <div style="padding:6px 10px;border-top:1px solid var(--border);color:var(--text2);background:var(--surface2)">Per-customer activity note e.g. "Sent physical pack", "Email only" — leave blank if not needed</div>
           </div>
           <div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:5px">Example — ${x(campName)}</div>
           <div style="background:#1a1a2e;border-radius:6px;padding:10px 14px;font-family:var(--mono);font-size:11px;line-height:2;margin-bottom:10px">
             <span style="color:#555">── row 1 (headers) ──</span><br>
-            <span style="color:#7dcfff">KF Code</span><span style="color:#555">,</span><span style="color:#7dcfff">Notes</span><br>
+            <span style="color:#7dcfff">KF Code</span><span style="color:#555">,</span><span style="color:#7dcfff">Activity</span><br>
             <span style="color:#555">── rows 2 onwards (one customer per row) ──</span><br>
-            <span style="color:#a6e3a1">TATE02</span><span style="color:#555">,</span><span style="color:#f9e2af">Sent physical brochure pack</span><br>
+            <span style="color:#a6e3a1">TATE02</span><span style="color:#555">,</span><span style="color:#f9e2af">Sent physical pack</span><br>
             <span style="color:#a6e3a1">OLIV03</span><span style="color:#555">,</span><span style="color:#f9e2af">Email PDF version only</span><br>
             <span style="color:#a6e3a1">SCRI27</span><span style="color:#555">,</span>
           </div>
