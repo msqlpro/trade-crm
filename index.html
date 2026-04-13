@@ -290,7 +290,7 @@ tbody tr{transition:background .1s}tbody tr:hover{background:var(--surface2);cur
 </div>
 
 <!-- MODAL -->
-<div id="modal-overlay" hidden onclick="if(event.target===this)closeModal()">
+<div id="modal-overlay" hidden onclick="if(event.target===this){closeModal();}" onmousedown="event.stopPropagation()">
   <div class="modal" id="modal-box">
     <div class="modal-head">
       <div class="modal-title" id="modal-title"></div>
@@ -673,7 +673,7 @@ async function renderCustomers(){
           <div id="col-picker-list" style="max-height:min(400px,52vh);overflow-y:auto"></div>
           <div style="border-top:1px solid var(--border);padding:8px 14px">
             <button class="btn btn-xs" onclick="resetColPrefs()">Reset to default</button>
-            <button class="btn btn-xs btn-primary" onclick="showCreateActivityFromPicker()">+ New Activity</button>
+            <button class="btn btn-xs btn-primary" onclick="event.stopPropagation();showCreateActivityFromPicker()">+ New Activity</button>
           </div>
         </div>
       </div>
@@ -806,6 +806,9 @@ function toggleColPicker(){
 document.addEventListener('click',e=>{
   // If the clicked element was removed from DOM (e.g. by renderCustomers re-render), ignore
   if(!document.body.contains(e.target))return;
+  // Don't close picker if modal is open
+  const mo=document.getElementById('modal-overlay');
+  if(mo&&!mo.hidden)return;
   if(S.custColsOpen&&!e.target.closest('#col-picker-panel')&&!e.target.closest('#col-picker-btn')){
     S.custColsOpen=false;
     const p=document.getElementById('col-picker-panel');
