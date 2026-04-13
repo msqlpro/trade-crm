@@ -2191,7 +2191,7 @@ function showCreateCampaign(){
         <button class="btn btn-primary" onclick="createCampaign()">Create Campaign</button>
       </div>
     </div>`;
-  document.getElementById('modal-overlay').style.display='flex';
+  document.getElementById('modal-overlay').hidden=false;
 }
 
 async function createCampaign(){
@@ -2314,37 +2314,67 @@ async function uploadCampParticipants(campId){
   btn.disabled=true;btn.textContent='Uploading…';
   if(!_campRows.length){err.textContent='Please select a CSV file first and wait for the preview to appear';btn.disabled=false;btn.textContent='Upload';return;}
 
-  // Resolve kf_codes to customer IDs
   const codes=_campRows.map(r=>r.code);
-  const{data:customers,error:ce}=await sb.from('customers').select('id,kf_code').in('kf_code',codes);
-  if(ce){err.textContent=ce.message;btn.disabled=false;btn.textContent='Upload';return;}
+  btn.textContent='Looking up customers…';
 
+  // Batch lookup in chunks of 100 to avoid URL length limits
+  const CHUNK=100;
   const codeMap={};
-  (customers||[]).forEach(c=>codeMap[c.kf_code]=c.id);
+  for(let i=0;i<codes.length;i+=CHUNK){
+    const chunk=codes.slice(i,i+CHUNK);
+    const{data,error:ce}=await sb.from('customers').select('id,kf_code').in('kf_code',chunk);
+    if(ce){err.textContent='Lookup error: '+ce.message;btn.disabled=false;btn.textContent='Upload';return;}
+    (data||[]).forEach(c=>codeMap[c.kf_code]=c.id);
+    btn.textContent='Looking up… '+Math.min(i+CHUNK,codes.length)+'/'+codes.length;
+  }
 
   const matched=_campRows.filter(r=>codeMap[r.code]);
   const unmatched=_campRows.filter(r=>!codeMap[r.code]);
 
   if(!matched.length){
-    err.textContent=`No customers matched. Check KF codes are correct.`;
+    err.textContent='No customers matched. Check KF codes are correct. (0 of '+codes.length+' codes found in database)';
     btn.disabled=false;btn.textContent='Upload';return;
   }
 
-  // Upsert campaign_customers
+  // Upsert in batches of 100
   const rows=matched.map(r=>({
-    campaign_id:campId,
-    customer_id:codeMap[r.code],
-    notes:r.notes||null,
-    activated_at:new Date().toISOString()
+    campaign_id:campId,customer_id:codeMap[r.code],
+    notes:r.notes||null,activated_at:new Date().toISOString()
   }));
 
-  const{error:ue}=await sb.from('campaign_customers').upsert(rows,{onConflict:'campaign_id,customer_id'});
-  if(ue){err.textContent=ue.message;btn.disabled=false;btn.textContent='Upload';return;}
+  for(let i=0;i<rows.length;i+=CHUNK){
+    btn.textContent='Saving… '+Math.min(i+CHUNK,rows.length)+'/'+rows.length;
+    const{error:ue}=await sb.from('campaign_customers').upsert(rows.slice(i,i+CHUNK),{onConflict:'campaign_id,customer_id'});
+    if(ue){err.textContent='Save error: '+ue.message;btn.disabled=false;btn.textContent='Upload';return;}
+  }
 
-  closeModal();
-  const unmatchedNote=unmatched.length?' ('+unmatched.length+' unmatched: '+unmatched.slice(0,3).map(r=>r.code).join(', ')+(unmatched.length>3?'…':'')+')':'';
-  const msg='✓ '+matched.length+' customer'+(matched.length!==1?'s':'')+' activated in campaign.'+unmatchedNote;
-  alert(msg);
+  // Show result in modal instead of alert
+  document.getElementById('modal-overlay').innerHTML=`
+    <div class="modal" style="max-width:480px">
+      <div class="modal-head"><span class="modal-title">Upload Complete</span><button class="modal-close" onclick="closeModal()">✕</button></div>
+      <div class="modal-body">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:${unmatched.length?'16px':'0'}">
+          <div style="background:var(--surface2);border:2px solid var(--green);border-radius:8px;padding:16px;text-align:center">
+            <div style="font-size:36px;font-weight:700;color:var(--green)">${matched.length}</div>
+            <div style="font-size:12px;font-weight:600;color:var(--text2);margin-top:4px">✓ Successfully uploaded</div>
+          </div>
+          <div style="background:var(--surface2);border:2px solid ${unmatched.length?'var(--red)':'var(--border)'};border-radius:8px;padding:16px;text-align:center">
+            <div style="font-size:36px;font-weight:700;color:${unmatched.length?'var(--red)':'var(--text3)'}">${unmatched.length}</div>
+            <div style="font-size:12px;font-weight:600;color:var(--text2);margin-top:4px">${unmatched.length?'✗ Codes not found':'✓ No errors'}</div>
+          </div>
+        </div>
+        ${unmatched.length?`
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:12px 14px">
+          <div style="font-size:12px;font-weight:600;color:var(--red);margin-bottom:6px">Unmatched KF Codes — not uploaded:</div>
+          <div style="font-family:var(--mono);font-size:11px;color:var(--text2);line-height:1.8">${unmatched.map(r=>'<span style="background:var(--surface);border:1px solid var(--border);border-radius:3px;padding:1px 6px;margin:2px;display:inline-block">'+x(r.code)+'</span>').join('')}</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:8px">Check these codes exist in the customer list — they may be misspelled or not yet imported.</div>
+        </div>`:''}
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-primary" onclick="closeModal()">Done</button>
+      </div>
+    </div>`;
+  document.getElementById('modal-overlay').hidden=false;
 }
 
 async function showCampStats(campId){
@@ -2363,7 +2393,7 @@ async function showCampStats(campId){
           <thead><tr>
             <th style="padding:8px 14px;text-align:left;border-bottom:1px solid var(--border);font-size:11px;color:var(--text2);background:var(--surface2)">KF Code</th>
             <th style="padding:8px 14px;text-align:left;border-bottom:1px solid var(--border);font-size:11px;color:var(--text2);background:var(--surface2)">Company</th>
-            <th style="padding:8px 14px;text-align:left;border-bottom:1px solid var(--border);font-size:11px;color:var(--text2);background:var(--surface2)">Notes</th>
+            <th style="padding:8px 14px;text-align:left;border-bottom:1px solid var(--border);font-size:11px;color:var(--text2);background:var(--surface2)">Activity</th>
             <th style="padding:8px 14px;text-align:left;border-bottom:1px solid var(--border);font-size:11px;color:var(--text2);background:var(--surface2)">Activated</th>
           </tr></thead>
           <tbody>
@@ -2380,7 +2410,7 @@ async function showCampStats(campId){
         <button class="btn" onclick="closeModal()">Close</button>
       </div>
     </div>`;
-  document.getElementById('modal-overlay').style.display='flex';
+  document.getElementById('modal-overlay').hidden=false;
 }
 </script>
 </body>
