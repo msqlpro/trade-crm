@@ -610,37 +610,43 @@ async function renderCustomers(){
     return '<th style="cursor:pointer;user-select:none;white-space:nowrap;" onclick="custSort(\''+col+'\')">'+label+arrow+'</th>';
   };
 
-  const vcols = visibleCols().filter(c=>!c.key.startsWith('camp:'));
-  // Campaign cols
-  const campCols = S.campaigns.filter(cam=>S.custCols?
-    (S.custCols.find(c=>c.key==='camp:'+cam.id)?.visible) : false);
-
   const RIGHT_ALIGN = ['last_12m_spend','prior_12m_spend','all_time_spend','invoice_count'];
+
+  // Build ordered column definitions respecting S.custCols position
+  // camp: columns appear in-order alongside regular columns, not always at end
+  const colDefs = (S.custCols||DEFAULT_COLS).filter(c=>c.visible).map(c=>{
+    if(c.key.startsWith('camp:')){
+      const cam=S.campaigns.find(cm=>'camp:'+cm.id===c.key);
+      return cam?{type:'camp',col:c,cam}:null;
+    }
+    return {type:'regular',col:c};
+  }).filter(Boolean);
+
+  // Derive campIds for loadCampParticipation
+  const campIds=colDefs.filter(d=>d.type==='camp').map(d=>d.cam.id);
 
   // Load campaign participation and event history for visible rows
   await Promise.all([loadCampParticipation(rows.map(r=>r.id)),loadCustEvents(rows.map(r=>r.id))]);
 
-  const campTh = campCols.map(cam=>
-    `<th style="cursor:default;user-select:none;white-space:nowrap">
-      ${x(cam.name)}
-    </th>`).join('');
-
-  const theadCols = vcols.map(c=>th(c.key,c.label,RIGHT_ALIGN.includes(c.key)?'right':null)).join('')+campTh;
-  const tbodyRows = rows.map(c=>{
-    const cells = vcols.map(col=>renderCell(col.key,c)).join('');
-    const campCells = campCols.map(cam=>{
-      const participation=S.campParticipation[c.id];
-      const inCamp=participation&&cam.id in participation;
-      const notes=inCamp?(participation[cam.id]||''):'';
-      if(!inCamp)return '<td></td>';
-      return `<td title="${x(notes)}" style="text-align:center">
-        <span style="font-size:13px;font-weight:700;color:var(--accent)" title="${x(notes)}">✓</span>
-        ${notes?`<span style="font-size:10px;color:var(--text3);display:block;max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${x(notes)}</span>`:''}
-      </td>`;
-    }).join('');
-    return '<tr onclick="go(\'customer-detail\',{id:\''+c.id+'\'})">'      +'<td><span>'+x(c.company_name)+'</span></td>'      +cells+campCells      +'</tr>';
+  const theadCols = colDefs.map(def=>{
+    if(def.type==='camp') return '<th style="cursor:default;user-select:none;white-space:nowrap">'+x(def.cam.name)+'</th>';
+    return th(def.col.key,def.col.label,RIGHT_ALIGN.includes(def.col.key)?'right':null);
   }).join('');
-  const colCount = 1 + vcols.length + campCols.length;
+
+  const tbodyRows = rows.map(r=>{
+    const cells = colDefs.map(def=>{
+      if(def.type==='camp'){
+        const participation=S.campParticipation[r.id];
+        const inCamp=participation&&def.cam.id in participation;
+        const notes=inCamp?(participation[def.cam.id]||''):'';
+        if(!inCamp)return '<td></td>';
+        return '<td title="'+x(notes)+'" style="text-align:center"><span style="font-size:13px;font-weight:700;color:var(--accent)">✓</span>'+(notes?'<span style="font-size:10px;color:var(--text3);display:block;max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+x(notes)+'</span>':'')+'</td>';
+      }
+      return renderCell(def.col.key,r);
+    }).join('');
+    return '<tr onclick="go('customer-detail',{id:''+r.id+''})"><td><span>'+x(r.company_name)+'</span></td>'+cells+'</tr>';
+  }).join('');
+  const colCount = 1 + colDefs.length;
 
   setPage(`
     <div class="toolbar" style="flex-wrap:wrap;gap:8px;flex-shrink:0">
