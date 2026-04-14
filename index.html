@@ -610,7 +610,7 @@ async function renderCustomers(){
     return '<th style="cursor:pointer;user-select:none;white-space:nowrap;" onclick="custSort(\''+col+'\')">'+label+arrow+'</th>';
   };
 
-  const vcols = visibleCols();
+  const vcols = visibleCols().filter(c=>!c.key.startsWith('camp:'));
   // Campaign cols
   const campCols = S.campaigns.filter(cam=>S.custCols?
     (S.custCols.find(c=>c.key==='camp:'+cam.id)?.visible) : false);
@@ -968,6 +968,7 @@ async function resetColPrefs(){
   await saveColPrefs();
 }
 function custSort(col){
+  if(col.startsWith('camp:'))return;
   if(S.custSort===col)S.custSortAsc=!S.custSortAsc;
   else{S.custSort=col;S.custSortAsc=!['all_time_spend','last_12m_spend','prior_12m_spend','invoice_count'].includes(col);}
   S.custPage=0;renderCustomers();
