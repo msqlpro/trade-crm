@@ -365,7 +365,7 @@ const ALL_COLS = [
   {key:'invoice_count',      label:'No. of Invoices'},
   {key:'last_order_date',    label:'Last Invoiced'},
   {key:'first_invoiced',     label:'First Invoiced'},
-  {key:'last_contacted_at',  label:'Last Contacted'},
+  {key:'last_contacted_at',  label:'Contacted'},
   // Dates
   {key:'kf_created_date',    label:'Customer Created Date'},
   // Notes
@@ -578,7 +578,7 @@ async function renderCustomers(){
     q = q.or('last_contacted_at.is.null,last_contacted_at.lt.'+cutoff);
   }
   // Push NULLs to bottom for numeric sorts
-  const numericCols = ['all_time_spend','last_12m_spend','prior_12m_spend','invoice_count','last_order_date','last_contacted_at','first_invoiced','kf_created_date'];
+  const numericCols = ['all_time_spend','last_12m_spend','prior_12m_spend','invoice_count','last_order_date','first_invoiced','kf_created_date'];
   if(numericCols.includes(sortCol)){
     q = q.order(sortCol, {ascending: sortAsc, nullsFirst: false});
   } else {
@@ -789,7 +789,7 @@ function renderCell(key,c){
     case 'last_order_date':  return dt(c.last_order_date);
     case 'first_invoiced':   return dt(c.first_invoiced);
     case 'kf_created_date':  return dt(c.kf_created_date);
-    case 'last_contacted_at':return td(c.last_contacted_at?ago(c.last_contacted_at):'Never','',`color:${!c.last_contacted_at?'var(--text3)':daysSince(c.last_contacted_at)>90?'var(--red)':'var(--text2)'}`);
+    case 'last_contacted_at':return td(c.last_contacted_at?'<span style="font-size:13px;font-weight:700;color:var(--accent)">✓</span>':'','','text-align:center');
     // Notes
     case 'notes':            return td(x((c.notes||'').substring(0,60)+(c.notes?.length>60?'…':'')),'','color:var(--text2);font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap');
     case 'customer_notes':   return td(x((c.customer_notes||'').substring(0,60)+(c.customer_notes?.length>60?'…':'')),'','color:var(--text2);font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap');
