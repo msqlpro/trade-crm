@@ -1689,7 +1689,14 @@ async function syncMailerLite(custId){
               metadata:{mailerlite_activity_id:act.id,campaign_id:act.campaign?.id,campaign_name:act.campaign?.name}
             });
           }
-        }synced++;
+        }
+        // Update last_contacted_at to most recent activity
+        if(activities.length){
+          const latest=activities.reduce((a,b)=>(a.updated_at||a.created_at)>(b.updated_at||b.created_at)?a:b);
+          const latestDate=latest.updated_at||latest.created_at;
+          if(latestDate)await sb.from('customers').update({last_contacted_at:new Date(latestDate).toISOString()}).eq('id',custId);
+        }
+        synced++;
       }
     }catch(e){errors++;}
   }
@@ -1812,13 +1819,14 @@ async function saveEvent(custId){
   const err=document.getElementById('le-err');
   if(!title&&!body){err.textContent='Please add a title or notes.';return;}
   err.textContent='';
+  const occurred_at=new Date(document.getElementById('le-date').value||new Date()).toISOString();
   const{error}=await sb.from('events').insert({
     customer_id:custId,event_type:document.getElementById('le-type').value,
     title:title||null,body:body||null,
-    occurred_at:new Date(document.getElementById('le-date').value||new Date()).toISOString(),
-    source:'manual',created_by:S.user.id
+    occurred_at,source:'manual',created_by:S.user.id
   });
   if(error){err.textContent=error.message;return;}
+  await sb.from('customers').update({last_contacted_at:occurred_at}).eq('id',custId);
   closeModal();go('customer-detail',{id:custId});
 }
 
