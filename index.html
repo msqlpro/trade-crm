@@ -1921,11 +1921,13 @@ async function saveLinkActivity(custId){
   const campId=document.getElementById('la-camp')?.value;
   const notes=document.getElementById('la-notes')?.value.trim()||null;
   if(!campId){document.getElementById('la-err').textContent='Please select an activity';return;}
+  const activated_at=new Date().toISOString();
   const{error}=await sb.from('campaign_customers').upsert(
-    {campaign_id:campId,customer_id:custId,notes,activated_at:new Date().toISOString()},
+    {campaign_id:campId,customer_id:custId,notes,activated_at},
     {onConflict:'campaign_id,customer_id'}
   );
   if(error){document.getElementById('la-err').textContent=error.message;return;}
+  await sb.from('customers').update({last_contacted_at:activated_at}).eq('id',custId);
   closeModal();
   renderCustomerDetail(custId);
 }
@@ -2324,10 +2326,14 @@ async function uploadCampParticipants(campId){
     notes:r.notes||null,activated_at:new Date().toISOString()
   }));
 
+  const uploadedAt=new Date().toISOString();
   for(let i=0;i<rows.length;i+=CHUNK){
     btn.textContent='Saving… '+Math.min(i+CHUNK,rows.length)+'/'+rows.length;
     const{error:ue}=await sb.from('campaign_customers').upsert(rows.slice(i,i+CHUNK),{onConflict:'campaign_id,customer_id'});
     if(ue){err.textContent='Save error: '+ue.message;btn.disabled=false;btn.textContent='Upload';return;}
+    // Update last_contacted_at for matched customers
+    const custIds=rows.slice(i,i+CHUNK).map(r=>r.customer_id).filter(Boolean);
+    if(custIds.length)await sb.from('customers').update({last_contacted_at:uploadedAt}).in('id',custIds);
   }
 
   // Save failure codes to DB for persistent "Failed Participants" view
