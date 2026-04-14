@@ -115,6 +115,9 @@ tbody tr{transition:background .1s}tbody tr:hover{background:var(--surface2);cur
 .badge-dormant{background:var(--slate-bg);color:var(--slate)}.badge-at-risk{background:var(--red-bg);color:var(--red)}
 .badge-open{background:var(--amber-bg);color:var(--amber)}.badge-done{background:var(--green-bg);color:var(--green)}
 .badge-cancelled{background:var(--slate-bg);color:var(--slate)}.badge-in_progress{background:var(--blue-bg);color:var(--blue)}
+.badge-urgent{background:var(--red-bg);color:var(--red)}.badge-normal{background:var(--slate-bg);color:var(--slate)}
+.priority-badge{cursor:pointer;user-select:none;transition:opacity .15s}.priority-badge:hover{opacity:.75}
+.task-section-head{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);padding:10px 14px 4px;border-bottom:1px solid var(--border)}
 .badge-won{background:var(--green-bg);color:var(--green)}.badge-lost{background:var(--red-bg);color:var(--red)}
 /* PAGINATION */
 .pagination{display:flex;align-items:center;gap:8px;padding:12px 14px;border-top:1px solid var(--border);background:var(--surface2);font-size:12px;color:var(--text2)}
@@ -1097,6 +1100,7 @@ async function renderCustomerDetail(id){
                 <div class="task-meta">
                   ${t.due_date?`<span class="${past(t.due_date)&&t.status!=='done'?'task-overdue':''}">Due ${fd(t.due_date)}</span>`:''}
                   <span class="badge badge-${t.status}" style="font-size:10px">${t.status.replace('_',' ')}</span>
+                  <span class="badge badge-${t.priority||'normal'} priority-badge" style="font-size:10px" onclick="togglePriority('${t.id}','${t.priority||'normal'}')" title="Click to toggle priority">${t.priority==='urgent'?'🔴 urgent':'normal'}</span>
                 </div>
               </div>
             </div>`).join(''):'<div style="padding:14px;text-align:center;color:var(--text3);font-size:13px">No tasks</div>'}
@@ -1225,11 +1229,30 @@ async function moveStage(custId,stage,event){
 }
 
 // ═══ TASKS ═══
+function renderTaskItem(t){
+  return `<div class="task-item" id="task-${t.id}">
+    <div class="task-check ${t.status==='done'?'done':''}" onclick="toggleTask('${t.id}',this,null)"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
+    <div class="task-content" style="flex:1">
+      <div class="task-title ${t.status==='done'?'done':''}">${x(t.title)}</div>
+      <div class="task-meta">
+        ${t.customers?`<span class="task-co" onclick="go('customer-detail',{id:'${t.customers.id}'})">${x(t.customers.company_name)}</span>`:''}
+        ${t.due_date?`<span class="${past(t.due_date)&&t.status!=='done'?'task-overdue':''}">Due ${fd(t.due_date)}</span>`:''}
+        <span class="badge badge-${t.status}" style="font-size:10px">${t.status.replace('_',' ')}</span>
+        <span class="badge badge-${t.priority||'normal'} priority-badge" style="font-size:10px" onclick="togglePriority('${t.id}','${t.priority||'normal'}')" title="Click to toggle priority">${t.priority==='urgent'?'🔴 urgent':'normal'}</span>
+      </div>
+    </div>
+  </div>`;
+}
+
 async function renderTasks(){
   let q=sb.from('tasks').select('*,customers(id,company_name)',{count:'exact'});
   if(S.taskFilter!=='all')q=q.eq('status',S.taskFilter);
   q=q.order('due_date').limit(200);
   const{data,count}=await q;
+  const urgent=(data||[]).filter(t=>t.priority==='urgent');
+  const normal=(data||[]).filter(t=>t.priority!=='urgent');
+  const urgentHtml=urgent.length?`<div class="task-section-head">🔴 Urgent (${urgent.length})</div>${urgent.map(renderTaskItem).join('')}`:'';
+  const normalHtml=normal.length?`${urgent.length?'<div class="task-section-head">Normal ('+normal.length+')</div>':''}${normal.map(renderTaskItem).join('')}`:'';
   setPage(`
     <div class="toolbar">
       <div class="pills">
@@ -1239,22 +1262,17 @@ async function renderTasks(){
       <span style="font-size:12px;color:var(--text3)">${count||0} tasks</span>
     </div>
     <div class="table-wrap">
-      ${!data?.length?'<div class="no-results">No tasks found</div>':data.map(t=>`
-        <div class="task-item">
-          <div class="task-check ${t.status==='done'?'done':''}" onclick="toggleTask('${t.id}',this,null)"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
-          <div class="task-content" style="flex:1">
-            <div class="task-title ${t.status==='done'?'done':''}">${x(t.title)}</div>
-            <div class="task-meta">
-              ${t.customers?`<span class="task-co" onclick="go('customer-detail',{id:'${t.customers.id}'})">${x(t.customers.company_name)}</span>`:''}
-              ${t.due_date?`<span class="${past(t.due_date)&&t.status!=='done'?'task-overdue':''}">Due ${fd(t.due_date)}</span>`:''}
-              <span class="badge badge-${t.status}" style="font-size:10px">${t.status.replace('_',' ')}</span>
-            </div>
-          </div>
-        </div>`).join('')}
+      ${!data?.length?'<div class="no-results">No tasks found</div>':urgentHtml+normalHtml}
     </div>
   `);
 }
 function taskFilter(f){S.taskFilter=f;renderTasks();}
+
+async function togglePriority(taskId, current){
+  const next=current==='urgent'?'normal':'urgent';
+  await sb.from('tasks').update({priority:next}).eq('id',taskId);
+  renderTasks();
+}
 
 // ═══ IMPORT CENTRE ═══
 let _csv={headers:[],rows:[],mapping:{}};
@@ -2072,6 +2090,7 @@ function showAddTask(custId){
     <div class="form-row" style="margin-top:12px">
       <div><label class="f-label">Due Date</label><input class="f-input" id="tk-due" type="date" value="${ts}"/></div>
       <div><label class="f-label">Status</label><select class="f-input" id="tk-status"><option value="open">Open</option><option value="in_progress">In Progress</option></select></div>
+      <div><label class="f-label">Priority</label><select class="f-input" id="tk-priority"><option value="normal">Normal</option><option value="urgent">🔴 Urgent</option></select></div>
     </div>
     <div id="tk-err" class="inline-err"></div>`,
     `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveTask('${custId||''}')">Add Task</button>`);
@@ -2094,7 +2113,7 @@ async function saveTask(defCustId){
   if(!title){err.textContent='Task title is required.';return;}
   err.textContent='';
   const custId=document.getElementById('tk-coid').value||defCustId||null;
-  const{error}=await sb.from('tasks').insert({title,customer_id:custId||null,due_date:document.getElementById('tk-due').value||null,status:document.getElementById('tk-status').value,assigned_to:S.user.id});
+  const{error}=await sb.from('tasks').insert({title,customer_id:custId||null,due_date:document.getElementById('tk-due').value||null,status:document.getElementById('tk-status').value,priority:document.getElementById('tk-priority').value,assigned_to:S.user.id});
   if(error){err.textContent=error.message;return;}
   closeModal();refreshCounts();
   if(custId&&S.view==='customer-detail')go('customer-detail',{id:custId});
