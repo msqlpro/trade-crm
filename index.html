@@ -313,7 +313,7 @@ const STAGE_COLOURS = {Prospect:'#1d4ed8',Contacted:'#7c3aed',Sampling:'#0f766e'
 // ═══ STATE ═══
 let S = {
   user:null, view:'dashboard', custId:null,
-  custPage:0, custSearch:'', custStatus:'',
+  custPage:0, custSearch:'', custStatus:'', custShrigOnly:false,
   taskFilter:'open', etypes:{}, tags:[], custEngagement:'',
   mlKey:'', importData:null, custColsOpen:false,
   custCols:null, // loaded per user from Supabase
@@ -565,6 +565,7 @@ async function renderCustomers(){
   // Main data query
   let q = sb.from('customers').select('id,kf_code,company_name,status,all_time_spend,last_12m_spend,prior_12m_spend,country_name,last_order_date,last_contacted_at,store_type,source,invoice_count,hidden,phone,mobile,website,address_1,address_2,address_3,address_4,postcode,delivery_address_1,delivery_address_2,delivery_address_3,delivery_address_4,delivery_postcode,first_invoiced,kf_created_date,notes,customer_notes,new_non_ha,shrig_only,contacts(first_name,last_name,email,is_primary)');
   if(!S.custShowHidden) q = q.eq('hidden', false);
+  if(S.custShrigOnly) q = q.eq('shrig_only', true);
   if(S.custSearch) q = q.ilike('company_name', '%'+S.custSearch+'%');
   if(S.custStatus === 'dormant'){
     const cutoff = new Date(Date.now()-365*864e5).toISOString().split('T')[0];
@@ -596,6 +597,7 @@ async function renderCustomers(){
   // Count query
   let cq = sb.from('customers').select('*',{count:'exact',head:true});
   if(!S.custShowHidden) cq = cq.eq('hidden', false);
+  if(S.custShrigOnly) cq = cq.eq('shrig_only', true);
   if(S.custSearch) cq = cq.ilike('company_name','%'+S.custSearch+'%');
   if(S.custStatus==='dormant'){const cut=new Date(Date.now()-365*864e5).toISOString().split('T')[0];cq=cq.or('status.eq.dormant,last_order_date.lt.'+cut);}
   else if(S.custStatus) cq = cq.eq('status',S.custStatus);
@@ -657,6 +659,7 @@ async function renderCustomers(){
       </div>
       <div class="pills">
         ${['','active','prospect','dormant'].map(s=>`<button class="pill ${S.custStatus===s?'on':''}" onclick="custFilter('${s}')">${s?s.charAt(0).toUpperCase()+s.slice(1):'All'}</button>`).join('')}
+        <button class="pill ${S.custShrigOnly?'on':''}" onclick="custToggleShrig()" style="${S.custShrigOnly?'':''}border-color:${S.custShrigOnly?'':'#16a34a'};color:${S.custShrigOnly?'':'#16a34a'}">🌿 Shrig Only</button>
       </div>
     </div>
     <div class="toolbar" style="margin-top:0;margin-bottom:14px;flex-shrink:0">
@@ -726,6 +729,7 @@ async function renderCustomers(){
 let _cst;
 function custSearch(v){clearTimeout(_cst);_cst=setTimeout(()=>{S.custSearch=v;S.custPage=0;renderCustomers();},300);}
 function custFilter(s){S.custStatus=s;S.custPage=0;renderCustomers();}
+function custToggleShrig(){S.custShrigOnly=!S.custShrigOnly;S.custPage=0;renderCustomers();}
 function custEngagement(v){S.custEngagement=v;S.custPage=0;renderCustomers();}
 function custPg(d){S.custPage+=d;renderCustomers();}
 function daysSince(d){if(!d)return 9999;return Math.floor((Date.now()-new Date(d))/864e5);}
@@ -981,6 +985,7 @@ async function custCSV(){
   if(S.custSearch)q=q.ilike('company_name',`%${S.custSearch}%`);
   if(S.custStatus==='dormant'){const cutoff=new Date(Date.now()-365*864e5).toISOString().split('T')[0];q=q.or(`status.eq.dormant,last_order_date.lt.${cutoff}`);}
   else if(S.custStatus)q=q.eq('status',S.custStatus);
+  if(S.custShrigOnly)q=q.eq('shrig_only',true);
   q=q.order(S.custSort||'company_name',{ascending:S.custSortAsc!==false}).limit(10000);
   const{data}=await q;
   if(!data?.length)return;
