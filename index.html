@@ -329,6 +329,7 @@ const ALL_COLS = [
   {key:'store_type',         label:'Store Type'},
   {key:'source',             label:'Source'},
   {key:'new_non_ha',         label:'New non-HA'},
+  {key:'shrig_only',          label:'Shrig Only'},
   // Primary contact
   {key:'contact_name',       label:'Contact Name'},
   {key:'contact_first',      label:'Contact First Name'},
@@ -562,7 +563,7 @@ async function renderCustomers(){
   const sortAsc = S.custSortAsc !== false;
 
   // Main data query
-  let q = sb.from('customers').select('id,kf_code,company_name,status,all_time_spend,last_12m_spend,prior_12m_spend,country_name,last_order_date,last_contacted_at,store_type,source,invoice_count,hidden,phone,mobile,website,address_1,address_2,address_3,address_4,postcode,delivery_address_1,delivery_address_2,delivery_address_3,delivery_address_4,delivery_postcode,first_invoiced,kf_created_date,notes,customer_notes,new_non_ha,contacts(first_name,last_name,email,is_primary)');
+  let q = sb.from('customers').select('id,kf_code,company_name,status,all_time_spend,last_12m_spend,prior_12m_spend,country_name,last_order_date,last_contacted_at,store_type,source,invoice_count,hidden,phone,mobile,website,address_1,address_2,address_3,address_4,postcode,delivery_address_1,delivery_address_2,delivery_address_3,delivery_address_4,delivery_postcode,first_invoiced,kf_created_date,notes,customer_notes,new_non_ha,shrig_only,contacts(first_name,last_name,email,is_primary)');
   if(!S.custShowHidden) q = q.eq('hidden', false);
   if(S.custSearch) q = q.ilike('company_name', '%'+S.custSearch+'%');
   if(S.custStatus === 'dormant'){
@@ -793,6 +794,7 @@ function renderCell(key,c){
     // Notes
     case 'notes':            return td(x((c.notes||'').substring(0,60)+(c.notes?.length>60?'…':'')),'','color:var(--text2);font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap');
     case 'customer_notes':   return td(x((c.customer_notes||'').substring(0,60)+(c.customer_notes?.length>60?'…':'')),'','color:var(--text2);font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap');
+    case 'shrig_only':      return td(c.shrig_only?'<span style="font-size:13px;font-weight:700;color:#16a34a">✓</span>':'','','text-align:center');
     default: return '<td>—</td>';
   }
 }
