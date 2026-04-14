@@ -644,7 +644,7 @@ async function renderCustomers(){
       }
       return renderCell(def.col.key,r);
     }).join('');
-    return '<tr onclick="go('customer-detail',{id:''+r.id+''})"><td><span>'+x(r.company_name)+'</span></td>'+cells+'</tr>';
+    return '<tr onclick="go(\'customer-detail\',{id:\''+r.id+'\'})">'+'<td><span>'+x(r.company_name)+'</span></td>'+cells+'</tr>';
   }).join('');
   const colCount = 1 + colDefs.length;
 
