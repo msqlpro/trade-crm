@@ -276,6 +276,7 @@ tbody tr{transition:background .1s}tbody tr:hover{background:var(--surface2);cur
       <button class="sb-item" id="nav-tasks" onclick="go('tasks')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>Tasks<span class="sb-badge" id="sb-tc"></span></button>
       <div class="sb-divider"></div>
       <button class="sb-item" id="nav-import" onclick="go('import')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>Import Customers</button>
+      <button class="sb-item" id="nav-rules" onclick="go('rules')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/><line x1="9" y1="9" x2="11" y2="9"/></svg>Business Rules</button>
       <button class="sb-item" id="nav-settings" onclick="go('settings')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Settings</button>
     </div>
     <div class="sb-foot">
@@ -499,6 +500,11 @@ function go(view,params={}){
   }
   else if(view==='import'){setTitle('Import Centre');renderImport();}
   else if(view==='campaigns'){setTitle('Campaigns');renderCampaigns();}
+  else if(view==='rules'){
+    setTitle('Business Rules');
+    setActions(`<button class="btn btn-primary btn-sm" onclick="showAddEditRule(null)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> New Rule</button>`);
+    renderRules();
+  }
   else if(view==='settings'){setTitle('Settings');renderSettings();}
 }
 function setTitle(t){document.getElementById('tb-title').textContent=t;}
@@ -2139,6 +2145,144 @@ function fd(d){if(!d)return'—';try{return new Date(d).toLocaleDateString('en-G
 function fdt(d){if(!d)return'—';try{return new Date(d).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});}catch{return String(d);}}
 function ago(d){if(!d)return'';const diff=Date.now()-new Date(d),m=Math.floor(diff/60000);if(m<1)return'just now';if(m<60)return m+'m ago';const h=Math.floor(m/60);if(h<24)return h+'h ago';const dy=Math.floor(h/24);if(dy<7)return dy+'d ago';return fd(d);}
 function past(d){if(!d)return false;return new Date(d)<new Date(new Date().toDateString());}
+
+// ========== BUSINESS RULES PAGE ==========
+
+async function renderRules(){
+  const {data:rules,error}=await sb.from('business_rules').select('*').order('category').order('sort_order').order('title');
+  if(error){setPage(`<div style="padding:20px;color:var(--red)">Error loading rules: ${x(error.message)}</div>`);return;}
+  // Group by category
+  const byCat={};
+  (rules||[]).forEach(r=>{(byCat[r.category]=byCat[r.category]||[]).push(r);});
+  const cats=Object.keys(byCat).sort();
+  const total=(rules||[]).length;
+  const active=(rules||[]).filter(r=>r.status==='active').length;
+  const planned=(rules||[]).filter(r=>r.status==='planned').length;
+  const deprecated=(rules||[]).filter(r=>r.status==='deprecated').length;
+  setPage(`
+    <div style="max-width:980px">
+      <div style="margin-bottom:20px">
+        <p style="font-size:13px;color:var(--text3);margin:0 0 12px">High-level recap of the rules that govern this CRM — how data flows, how customers are classified, how syncs run. Use this page to keep track of what's live, what's planned, and what's been retired.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <span class="badge" style="background:var(--green-s,#d4f4dd);color:var(--green,#0a7c2f)">${active} active</span>
+          <span class="badge" style="background:var(--amber-s,#fff2d4);color:var(--amber,#b57100)">${planned} planned</span>
+          ${deprecated?`<span class="badge" style="background:var(--bg);color:var(--text3)">${deprecated} deprecated</span>`:''}
+          <span class="badge" style="background:var(--bg);color:var(--text3)">${total} total · ${cats.length} categories</span>
+        </div>
+      </div>
+      ${!total?`
+        <div style="text-align:center;padding:60px 20px;color:var(--text3)">
+          <div style="font-size:48px;margin-bottom:12px">📋</div>
+          <div style="font-size:15px;font-weight:600;margin-bottom:6px">No rules yet</div>
+          <div style="font-size:13px">Add your first rule to start documenting how this CRM works.</div>
+        </div>
+      `:cats.map(cat=>`
+        <div style="margin-bottom:22px">
+          <h3 style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text2);margin:0 0 10px;padding-bottom:6px;border-bottom:1px solid var(--border)">${x(cat)} <span style="font-weight:500;color:var(--text3);text-transform:none;letter-spacing:0">· ${byCat[cat].length}</span></h3>
+          ${byCat[cat].map(r=>`
+            <div class="detail-card" style="margin-bottom:8px;${r.status==='deprecated'?'opacity:.55':''}">
+              <div style="display:flex;align-items:flex-start;gap:12px;padding:12px 14px">
+                <div style="flex:1;min-width:0">
+                  <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+                    <div style="font-size:13.5px;font-weight:600">${x(r.title)}</div>
+                    ${r.status==='active'?`<span class="badge" style="background:var(--green-s,#d4f4dd);color:var(--green,#0a7c2f);font-size:10px">Active</span>`:''}
+                    ${r.status==='planned'?`<span class="badge" style="background:var(--amber-s,#fff2d4);color:var(--amber,#b57100);font-size:10px">Planned</span>`:''}
+                    ${r.status==='deprecated'?`<span class="badge" style="background:var(--bg);color:var(--text3);font-size:10px">Deprecated</span>`:''}
+                  </div>
+                  ${r.description?`<div style="font-size:12.5px;color:var(--text2);line-height:1.5">${x(r.description)}</div>`:''}
+                  <div style="font-size:10.5px;color:var(--text3);margin-top:6px">Updated ${fd(r.updated_at)}</div>
+                </div>
+                <div style="display:flex;gap:6px;flex-shrink:0">
+                  <button class="btn btn-sm" data-rule-id="${r.id}" onclick="showAddEditRule(this.dataset.ruleId)">Edit</button>
+                  <button class="btn btn-sm" style="color:var(--red)" data-rule-id="${r.id}" data-rule-title="${x(r.title).replace(/"/g,'&quot;')}" onclick="deleteRule(this.dataset.ruleId,this.dataset.ruleTitle)">Delete</button>
+                </div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      `).join('')}
+    </div>
+  `);
+}
+
+async function showAddEditRule(ruleId){
+  let r={category:'',title:'',description:'',status:'active',sort_order:100};
+  if(ruleId){
+    const{data}=await sb.from('business_rules').select('*').eq('id',ruleId).single();
+    if(data)r=data;
+  }
+  // Get existing categories so user can pick or add new
+  const{data:allRules}=await sb.from('business_rules').select('category');
+  const existingCats=[...new Set((allRules||[]).map(x=>x.category))].sort();
+  document.getElementById('modal-overlay').innerHTML=`
+    <div class="modal" style="max-width:560px">
+      <div class="modal-head"><span class="modal-title">${ruleId?'Edit Rule':'New Rule'}</span><button class="modal-close" onclick="closeModal()">✕</button></div>
+      <div class="modal-body">
+        <div style="margin-bottom:14px">
+          <label class="f-label">Category *</label>
+          <input class="f-input" id="rule-category" list="rule-cat-list" value="${x(r.category)}" placeholder="e.g. Customer Data, Campaigns, Sync Processes" autofocus/>
+          <datalist id="rule-cat-list">${existingCats.map(c=>`<option value="${x(c)}"></option>`).join('')}</datalist>
+        </div>
+        <div style="margin-bottom:14px">
+          <label class="f-label">Title *</label>
+          <input class="f-input" id="rule-title" value="${x(r.title)}" placeholder="Short rule name"/>
+        </div>
+        <div style="margin-bottom:14px">
+          <label class="f-label">Description</label>
+          <textarea class="f-input" id="rule-description" rows="5" placeholder="Explain what this rule does and why it exists">${x(r.description||'')}</textarea>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+          <div>
+            <label class="f-label">Status</label>
+            <select class="f-input" id="rule-status">
+              <option value="active" ${r.status==='active'?'selected':''}>Active (live)</option>
+              <option value="planned" ${r.status==='planned'?'selected':''}>Planned (not built yet)</option>
+              <option value="deprecated" ${r.status==='deprecated'?'selected':''}>Deprecated (retired)</option>
+            </select>
+          </div>
+          <div>
+            <label class="f-label">Sort Order</label>
+            <input class="f-input" id="rule-sort" type="number" value="${r.sort_order||100}" title="Lower numbers show first within a category"/>
+          </div>
+        </div>
+        <div id="rule-err" style="color:var(--red);font-size:12px"></div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="saveRule('${ruleId||''}')">${ruleId?'Save Changes':'Create Rule'}</button>
+      </div>
+    </div>`;
+  document.getElementById('modal-overlay').hidden=false;
+}
+
+async function saveRule(ruleId){
+  const category=document.getElementById('rule-category').value.trim();
+  const title=document.getElementById('rule-title').value.trim();
+  const description=document.getElementById('rule-description').value.trim();
+  const status=document.getElementById('rule-status').value;
+  const sort_order=parseInt(document.getElementById('rule-sort').value,10)||100;
+  const err=document.getElementById('rule-err');
+  if(!category){err.textContent='Category is required';return;}
+  if(!title){err.textContent='Title is required';return;}
+  const payload={category,title,description:description||null,status,sort_order,updated_by:S.user.id};
+  let res;
+  if(ruleId){
+    res=await sb.from('business_rules').update(payload).eq('id',ruleId);
+  }else{
+    payload.created_by=S.user.id;
+    res=await sb.from('business_rules').insert(payload);
+  }
+  if(res.error){err.textContent=res.error.message;return;}
+  closeModal();
+  renderRules();
+}
+
+async function deleteRule(id,title){
+  if(!confirm(`Delete rule "${title}"? This cannot be undone.`))return;
+  const{error}=await sb.from('business_rules').delete().eq('id',id);
+  if(error){alert('Delete failed: '+error.message);return;}
+  renderRules();
+}
 
 // ========== CAMPAIGNS PAGE ==========
 
