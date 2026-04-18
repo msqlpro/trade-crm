@@ -1,0 +1,120 @@
+# Routine: Sync MailerLite (Most Recent Campaign → Events + Subscription Refresh)
+
+## Setup instructions
+
+1. Go to https://claude.ai/code/routines → **New routine**
+2. Name: **Sync MailerLite**
+3. Model: **Claude Sonnet 4.6**
+4. Repositories: none required
+5. Connectors to enable:
+   - **MailerLite**
+   - **Supabase**
+6. Triggers:
+   - **API** (for the CRM button)
+   - **Scheduled** (optional, Monday 08:00) — catches Sunday campaign sends
+7. Paste the prompt below and save.
+
+## Prompt (copy-paste exactly)
+
+```
+You are performing a MailerLite → Supabase sync for the Brainbox Candy Trade CRM. Work silently. Report only the final summary.
+
+# Context
+- MailerLite account: connected via OAuth MCP connector.
+- Supabase project: ypfwecopdsielnouxwzv.
+- Match key: email (lowercase). contacts.email → customer_id.
+- A contact may be linked to multiple MailerLite subscribers across different groups.
+
+# Two jobs
+
+## Job A: Ingest most recent SENT trade campaign
+1. List MailerLite campaigns (status=sent). Filter to those with 'trade' (case-insensitive) in the name.
+2. Take only the MOST RECENT by finished_at. If none exist, skip to Job B.
+3. Check Supabase sync_state.value_text for key='mailerlite_last_campaign_sync'. If it equals this campaign's id → campaign already synced, skip to Job B.
+4. For this campaign, pull the full recipient list via MailerLite subscribers endpoint.
+5. Lowercase-match emails to Supabase contacts table (SELECT email, customer_id). Batch in chunks of 500.
+6. For every matched customer, insert a single event:
+   - event_type = 'campaign_sent'
+   - source = 'mailerlite'
+   - title = campaign.name
+   - occurred_at = campaign.finished_at
+   - metadata = {
+       ml_activity_id: 'ml_' || campaign.id || '_' || email || '_sent',
+       ml_campaign_id, ml_campaign_name, ml_subscriber_email
+     }
+   Use ON CONFLICT handling against the existing uidx_events_ml_activity unique index — duplicates are silently skipped.
+7. Update last_contacted_at on matched customers to campaign.finished_at.
+8. Set sync_state.value_text = campaign.id for key='mailerlite_last_campaign_sync'.
+
+## Job B: Refresh subscription status for all CRM contacts
+Purpose: populate contacts.mailerlite_subscribed, contacts.mailerlite_status, contacts.mailerlite_subscriber_id, contacts.mailerlite_group_names.
+
+1. Fetch all active MailerLite subscribers (paginate with cursor, 100 at a time). For each, get: email, status, id, and their group names.
+   - Groups: MailerLite returns group IDs on the subscriber. Resolve to names via the /groups endpoint (fetched once, cached in memory).
+2. Build in-memory map: lowercase_email → {status, id, group_names[]}.
+3. Read ALL Supabase contacts (email, customer_id, mailerlite_subscribed current value). Batch in 1000s.
+4. For each contact:
+   - If lowercase email is in MailerLite map:
+     - subscribed_now = (map.status == 'active')
+     - If any of the four fields differ from current DB row → UPDATE
+   - If lowercase email NOT in MailerLite map:
+     - If mailerlite_subscribed was true, flip to false. Clear mailerlite_status, mailerlite_subscriber_id, mailerlite_group_names.
+     - If already false and fields already null → no-op
+5. The existing trigger on contacts will auto-update customers.ml_any_subscribed and customers.ml_group_names. Do not touch those columns manually.
+6. Update sync_state.value_ts = now() for key='mailerlite_last_subscription_refresh'.
+
+# Log both jobs to ml_sync_log
+INSERT one row:
+- run_type: 'routine'
+- dry_run: false
+- campaigns_processed: 1 if Job A found a new campaign, else 0
+- subscribers_seen: total MailerLite subscribers seen in Job B
+- events_created: count of campaign_sent events actually inserted
+- matched_customers: distinct customer_ids that had events inserted OR subscription changes
+- unmatched_emails: array of emails from Job B that aren't in any CRM contact (cap 200)
+- campaign_details: [{id, name, status, events_inserted, matched, unmatched}]
+- errors: array
+- duration_ms
+
+# Output format
+End with exactly:
+
+--- RESULT JSON ---
+{
+  "job_a": {
+    "campaign_id": "...",
+    "campaign_name": "...",
+    "events_inserted": N,
+    "matched_customers": N,
+    "unmatched_emails_count": N,
+    "skipped_already_synced": true|false
+  },
+  "job_b": {
+    "ml_subscribers_total": N,
+    "contacts_subscribed": N,
+    "contacts_unsubscribed": N,
+    "contacts_bounced": N,
+    "contacts_updated": N,
+    "ml_emails_not_in_crm": N
+  },
+  "duration_ms": N,
+  "narrative": "Brief observation. e.g. 'Latest trade campaign — Easter Trade 2026 — synced with 2,847 campaign_sent events. 62 unsubscribes detected since last run, mostly from hotmail addresses. 47 MailerLite emails don't match any CRM contact — worth reviewing for new leads.'"
+}
+--- END RESULT ---
+
+# Error handling
+- If MailerLite rate limits (429): back off 10 seconds, retry up to 3 times.
+- If Supabase write fails on a batch: log to errors, continue with next batch.
+- Never retry destructive operations.
+```
+
+## Once the routine is created
+
+Save the endpoint and token to Supabase:
+
+```sql
+INSERT INTO app_settings(key, value) VALUES
+  ('sync_mailerlite_routine_endpoint', 'https://...'),
+  ('sync_mailerlite_routine_token', 'rtn_...')
+ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now();
+```
