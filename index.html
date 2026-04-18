@@ -294,7 +294,7 @@ tbody tr{transition:background .1s}tbody tr:hover{background:var(--surface2);cur
   <div class="main">
     <div class="topbar">
       <div class="topbar-title" id="tb-title">Dashboard</div>
-      <div class="topbar-version" title="CRM build version">v4 · 18 Apr 26</div>
+      <div class="topbar-version" title="CRM build version">v5 · 18 Apr 26</div>
       <div class="topbar-sub" id="tb-sub"></div>
       <div class="topbar-right" id="tb-actions"></div>
     </div>
@@ -2249,16 +2249,11 @@ async function runSyncMailerLite(){
 
 async function callRoutineProxy(routine, text){
   // Call the Supabase Edge Function 'trigger-routine' which proxies to Anthropic.
-  // We need the user's JWT — ensures verify_jwt passes on the edge function.
-  const { data: { session } } = await sb.auth.getSession();
-  if(!session){
-    // Return a synthetic Response-like object so caller's !res.ok branch fires
-    return new Response(JSON.stringify({ error: 'Not signed in', detail: 'Please sign in again.' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
-  }
+  // Edge function is verify_jwt=false — the real secret (routine bearer token) stays
+  // server-side in app_settings and is never exposed to the browser.
   return await fetch(`${SURL}/functions/v1/trigger-routine`, {
     method: 'POST',
     headers: {
-      'Authorization': 'Bearer ' + session.access_token,
       'apikey': SKEY,
       'Content-Type': 'application/json',
     },
