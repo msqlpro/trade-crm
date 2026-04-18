@@ -294,7 +294,7 @@ tbody tr{transition:background .1s}tbody tr:hover{background:var(--surface2);cur
   <div class="main">
     <div class="topbar">
       <div class="topbar-title" id="tb-title">Dashboard</div>
-      <div class="topbar-version" title="CRM build version">v3 · 18 Apr 26</div>
+      <div class="topbar-version" title="CRM build version">v4 · 18 Apr 26</div>
       <div class="topbar-sub" id="tb-sub"></div>
       <div class="topbar-right" id="tb-actions"></div>
     </div>
@@ -2054,34 +2054,27 @@ async function runUpdateCustomers(){
   setSub('');
 
   try {
-    const cfg = await loadRoutineConfig('update_customers');
-    if(!cfg.endpoint || !cfg.token){
-      setStatus('Routine not configured');
-      setSub('Set update_customers_routine_endpoint and _token in app_settings. See routines/update-customers.md.');
-      hideDashProgress('uc');
-      return;
-    }
-
     setStatus('Triggering routine…');
     setSub('Claude is comparing KashFlow against Supabase');
     const timer = rdAnimateDial('uc', 40);
 
-    const res = await fetch(cfg.endpoint, {
-      method: 'POST',
-      headers: {
-        'Authorization': 'Bearer ' + cfg.token,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ message: 'Run the Update Customers routine now. triggered_by=crm-ui' })
-    });
+    const res = await callRoutineProxy('update_customers', 'Run the Update Customers routine now. triggered_by=crm-ui');
 
     clearInterval(timer);
 
     if(!res.ok){
-      const txt = await res.text();
       rdSetDial('uc', 0);
       setStatus('Routine call failed');
-      setSub(`HTTP ${res.status}: ${txt.substring(0,200)}`);
+      let msg = `HTTP ${res.status}`;
+      try {
+        const errJson = await res.clone().json();
+        if(errJson.error) msg = errJson.error + (errJson.detail ? ': ' + errJson.detail : '');
+        else if(errJson.anthropic_response?.error) msg = `Anthropic ${errJson.status}: ${JSON.stringify(errJson.anthropic_response.error).substring(0,200)}`;
+      } catch {
+        const txt = await res.text();
+        msg = `HTTP ${res.status}: ${txt.substring(0,200)}`;
+      }
+      setSub(msg);
       hideDashProgress('uc');
       return;
     }
@@ -2167,34 +2160,27 @@ async function runSyncMailerLite(){
   setSub('');
 
   try {
-    const cfg = await loadRoutineConfig('sync_mailerlite');
-    if(!cfg.endpoint || !cfg.token){
-      setStatus('Routine not configured');
-      setSub('Set sync_mailerlite_routine_endpoint and _token in app_settings. See routines/sync-mailerlite.md.');
-      hideDashProgress('ml');
-      return;
-    }
-
     setStatus('Triggering routine…');
     setSub('Claude is syncing latest campaign + refreshing subscriptions');
     const timer = rdAnimateDial('ml', 60);
 
-    const res = await fetch(cfg.endpoint, {
-      method: 'POST',
-      headers: {
-        'Authorization': 'Bearer ' + cfg.token,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ message: 'Run the Sync MailerLite routine now. triggered_by=crm-ui' })
-    });
+    const res = await callRoutineProxy('sync_mailerlite', 'Run the Sync MailerLite routine now. triggered_by=crm-ui');
 
     clearInterval(timer);
 
     if(!res.ok){
-      const txt = await res.text();
       rdSetDial('ml', 0);
       setStatus('Routine call failed');
-      setSub(`HTTP ${res.status}: ${txt.substring(0,200)}`);
+      let msg = `HTTP ${res.status}`;
+      try {
+        const errJson = await res.clone().json();
+        if(errJson.error) msg = errJson.error + (errJson.detail ? ': ' + errJson.detail : '');
+        else if(errJson.anthropic_response?.error) msg = `Anthropic ${errJson.status}: ${JSON.stringify(errJson.anthropic_response.error).substring(0,200)}`;
+      } catch {
+        const txt = await res.text();
+        msg = `HTTP ${res.status}: ${txt.substring(0,200)}`;
+      }
+      setSub(msg);
       hideDashProgress('ml');
       return;
     }
@@ -2261,14 +2247,23 @@ async function runSyncMailerLite(){
   }
 }
 
-async function loadRoutineConfig(prefix){
-  const {data} = await sb.from('app_settings').select('key,value').in('key',[prefix+'_routine_endpoint', prefix+'_routine_token']);
-  const out = { endpoint: null, token: null };
-  (data||[]).forEach(r=>{
-    if(r.key === prefix+'_routine_endpoint') out.endpoint = r.value;
-    if(r.key === prefix+'_routine_token') out.token = r.value;
+async function callRoutineProxy(routine, text){
+  // Call the Supabase Edge Function 'trigger-routine' which proxies to Anthropic.
+  // We need the user's JWT — ensures verify_jwt passes on the edge function.
+  const { data: { session } } = await sb.auth.getSession();
+  if(!session){
+    // Return a synthetic Response-like object so caller's !res.ok branch fires
+    return new Response(JSON.stringify({ error: 'Not signed in', detail: 'Please sign in again.' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
+  }
+  return await fetch(`${SURL}/functions/v1/trigger-routine`, {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Bearer ' + session.access_token,
+      'apikey': SKEY,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ routine, text }),
   });
-  return out;
 }
 
 async function handleCustomerSyncFile(f){
