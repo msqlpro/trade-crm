@@ -334,6 +334,8 @@ const ALL_COLS = [
   {key:'source',             label:'Source'},
   {key:'new_non_ha',         label:'New non-HA'},
   {key:'shrig_only',          label:'Shrig Only'},
+  {key:'ml_subscribed',       label:'Subscribed (ML)'},
+  {key:'ml_groups',           label:'ML Groups'},
   // Primary contact
   {key:'contact_name',       label:'Contact Name'},
   {key:'contact_first',      label:'Contact First Name'},
@@ -572,7 +574,7 @@ async function renderCustomers(){
   const sortAsc = S.custSortAsc !== false;
 
   // Main data query
-  let q = sb.from('customers').select('id,kf_code,company_name,status,all_time_spend,last_12m_spend,prior_12m_spend,country_name,last_order_date,last_contacted_at,store_type,source,invoice_count,hidden,phone,mobile,website,address_1,address_2,address_3,address_4,postcode,delivery_address_1,delivery_address_2,delivery_address_3,delivery_address_4,delivery_postcode,first_invoiced,kf_created_date,notes,customer_notes,new_non_ha,shrig_only,contacts(first_name,last_name,email,is_primary)');
+  let q = sb.from('customers').select('id,kf_code,company_name,status,all_time_spend,last_12m_spend,prior_12m_spend,country_name,last_order_date,last_contacted_at,store_type,source,invoice_count,hidden,phone,mobile,website,address_1,address_2,address_3,address_4,postcode,delivery_address_1,delivery_address_2,delivery_address_3,delivery_address_4,delivery_postcode,first_invoiced,kf_created_date,notes,customer_notes,new_non_ha,shrig_only,ml_any_subscribed,ml_group_names,contacts(first_name,last_name,email,is_primary)');
   if(!S.custShowHidden) q = q.eq('hidden', false);
   if(S.custShrigOnly) q = q.eq('shrig_only', true);
   if(S.custSearch) q = q.ilike('company_name', '%'+S.custSearch+'%');
@@ -808,6 +810,8 @@ function renderCell(key,c){
     case 'notes':            return td(x((c.notes||'').substring(0,60)+(c.notes?.length>60?'…':'')),'','color:var(--text2);font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap');
     case 'customer_notes':   return td(x((c.customer_notes||'').substring(0,60)+(c.customer_notes?.length>60?'…':'')),'','color:var(--text2);font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap');
     case 'shrig_only':      return td(c.shrig_only?'<span style="font-size:13px;font-weight:700;color:#16a34a">✓</span>':'','','text-align:center');
+    case 'ml_subscribed':   return td(c.ml_any_subscribed?'<span style="font-size:13px;font-weight:700;color:#0891b2" title="At least one contact is actively subscribed in MailerLite">✓</span>':'','','text-align:center');
+    case 'ml_groups':       return td((c.ml_group_names&&c.ml_group_names.length)?c.ml_group_names.map(g=>`<span style="display:inline-block;background:#ecfeff;color:#0e7490;padding:1px 6px;border-radius:3px;font-size:10px;margin-right:3px">${x(g)}</span>`).join(''):'','','font-size:11px');
     default: return '<td>—</td>';
   }
 }
@@ -1750,6 +1754,54 @@ function renderSettings(){
   setPage(`
     <div>
       <div class="settings-card">
+        <div class="settings-head">Update Customers (Claude Routine)</div>
+        <div class="settings-body">
+          <div class="settings-note">Triggers the Claude Code routine that pulls customer changes from KashFlow (MySQL) and upserts them into the CRM. Uses delta detection: only rows with a recent Updated or Created date are checked. Weekly full sweep runs automatically on Sundays. CRM-only fields (pipeline, hidden, tags, notes) are never touched.</div>
+          <div style="margin-top:12px">
+            <button class="btn btn-primary" onclick="runUpdateCustomers()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> Update Customers Now</button>
+            <span id="uc-last" style="font-size:12px;color:var(--text3);margin-left:10px"></span>
+          </div>
+          <div id="uc-progress" style="margin-top:14px;display:none">
+            <div style="display:flex;align-items:center;gap:16px">
+              <svg id="uc-dial" width="56" height="56" viewBox="0 0 64 64" style="flex-shrink:0">
+                <circle cx="32" cy="32" r="28" fill="none" stroke="var(--border)" stroke-width="6"/>
+                <circle id="uc-dial-fg" cx="32" cy="32" r="28" fill="none" stroke="var(--blue)" stroke-width="6" stroke-dasharray="175.93" stroke-dashoffset="175.93" stroke-linecap="round" transform="rotate(-90 32 32)" style="transition:stroke-dashoffset .3s ease"/>
+              </svg>
+              <div style="flex:1">
+                <div id="uc-status" style="font-size:13px;font-weight:600">Triggering routine…</div>
+                <div id="uc-subtext" style="font-size:12px;color:var(--text3);margin-top:4px"></div>
+              </div>
+            </div>
+          </div>
+          <div id="uc-result" style="margin-top:14px;display:none"></div>
+        </div>
+      </div>
+
+      <div class="settings-card">
+        <div class="settings-head">Sync MailerLite (Claude Routine)</div>
+        <div class="settings-body">
+          <div class="settings-note">Triggers the Claude Code routine that pulls the most recent sent "trade" campaign from MailerLite and logs campaign_sent events on matched customer timelines. Also refreshes subscription status and group membership for all contacts.</div>
+          <div style="margin-top:12px">
+            <button class="btn btn-primary" onclick="runSyncMailerLite()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4z"/></svg> Sync MailerLite Now</button>
+            <span id="ml-last" style="font-size:12px;color:var(--text3);margin-left:10px"></span>
+          </div>
+          <div id="ml-progress" style="margin-top:14px;display:none">
+            <div style="display:flex;align-items:center;gap:16px">
+              <svg id="ml-dial" width="56" height="56" viewBox="0 0 64 64" style="flex-shrink:0">
+                <circle cx="32" cy="32" r="28" fill="none" stroke="var(--border)" stroke-width="6"/>
+                <circle id="ml-dial-fg" cx="32" cy="32" r="28" fill="none" stroke="var(--teal,#14b8a6)" stroke-width="6" stroke-dasharray="175.93" stroke-dashoffset="175.93" stroke-linecap="round" transform="rotate(-90 32 32)" style="transition:stroke-dashoffset .3s ease"/>
+              </svg>
+              <div style="flex:1">
+                <div id="ml-status" style="font-size:13px;font-weight:600">Triggering routine…</div>
+                <div id="ml-subtext" style="font-size:12px;color:var(--text3);margin-top:4px"></div>
+              </div>
+            </div>
+          </div>
+          <div id="ml-result" style="margin-top:14px;display:none"></div>
+        </div>
+      </div>
+
+      <div class="settings-card">
         <div class="settings-head">Customer Data Sync</div>
         <div class="settings-body">
           <div class="settings-note">Refresh customer records from KashFlow. Upload a CSV exported from the brainbox_candy MySQL database — only changed rows are updated. CRM-only fields (pipeline stage, hidden, tags, notes) are never touched.</div>
@@ -1855,6 +1907,260 @@ function wireCustomerSyncDrop(){
   file.addEventListener('change', ()=>{
     if(file.files.length) handleCustomerSyncFile(file.files[0]);
   });
+  loadLastSyncTimestamps();
+}
+
+async function loadLastSyncTimestamps(){
+  try {
+    const {data} = await sb.from('sync_state').select('key,value_ts').in('key',['kashflow_customer_last_sync','mailerlite_last_subscription_refresh']);
+    if(!data) return;
+    const fmt = (ts) => ts ? 'Last run: ' + new Date(ts).toLocaleString('en-GB',{dateStyle:'short',timeStyle:'short'}) : 'Never run';
+    const uc = data.find(r=>r.key==='kashflow_customer_last_sync');
+    const ml = data.find(r=>r.key==='mailerlite_last_subscription_refresh');
+    const ucEl = document.getElementById('uc-last');
+    const mlEl = document.getElementById('ml-last');
+    if(ucEl) ucEl.textContent = fmt(uc?.value_ts);
+    if(mlEl) mlEl.textContent = fmt(ml?.value_ts);
+  } catch(e){ console.warn('loadLastSyncTimestamps failed', e); }
+}
+
+// ═══ ROUTINE-TRIGGER BUTTONS ═══
+
+// Generic SVG dial updater — reused by both buttons
+function rdSetDial(dialPrefix, pct){
+  const fg = document.getElementById(dialPrefix+'-dial-fg');
+  if(!fg) return;
+  const circ = 2 * Math.PI * 28;
+  fg.setAttribute('stroke-dashoffset', String(circ * (1 - pct/100)));
+}
+
+// Animate the dial from 0 to ~90% over est. duration so the user sees progress
+// (we can't get real progress from a routine — this is a visual affordance)
+function rdAnimateDial(dialPrefix, estSeconds, untilPct){
+  let pct = 0;
+  const target = untilPct || 90;
+  const stepMs = 400;
+  const totalSteps = (estSeconds * 1000) / stepMs;
+  const stepSize = target / totalSteps;
+  const timer = setInterval(()=>{
+    pct = Math.min(target, pct + stepSize);
+    rdSetDial(dialPrefix, pct);
+    if(pct >= target) clearInterval(timer);
+  }, stepMs);
+  return timer;
+}
+
+async function runUpdateCustomers(){
+  const progress = document.getElementById('uc-progress');
+  const status = document.getElementById('uc-status');
+  const sub = document.getElementById('uc-subtext');
+  const result = document.getElementById('uc-result');
+  result.style.display = 'none';
+  progress.style.display = 'block';
+  rdSetDial('uc', 0);
+  status.textContent = 'Fetching routine config…';
+  sub.textContent = '';
+
+  try {
+    const cfg = await loadRoutineConfig('update_customers');
+    if(!cfg.endpoint || !cfg.token){
+      status.textContent = 'Routine not configured';
+      sub.innerHTML = 'Set <code>update_customers_routine_endpoint</code> and <code>update_customers_routine_token</code> in <code>app_settings</code>. See <code>routines/update-customers.md</code> in the repo for setup instructions.';
+      return;
+    }
+
+    status.textContent = 'Triggering routine…';
+    sub.textContent = 'Claude is comparing KashFlow against Supabase';
+    const timer = rdAnimateDial('uc', 40);
+
+    const res = await fetch(cfg.endpoint, {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + cfg.token,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ message: 'Run the Update Customers routine now. triggered_by=crm-ui' })
+    });
+
+    clearInterval(timer);
+
+    if(!res.ok){
+      const txt = await res.text();
+      rdSetDial('uc', 0);
+      status.textContent = 'Routine call failed';
+      sub.textContent = `HTTP ${res.status}: ${txt.substring(0,200)}`;
+      return;
+    }
+
+    const resp = await res.json();
+    rdSetDial('uc', 100);
+    status.textContent = 'Routine started — running in the cloud';
+
+    // Most Claude Code routine API responses return a session URL / run ID.
+    // The actual result lands in customer_sync_log when the routine writes its summary.
+    // Poll customer_sync_log for a new row that didn't exist before we kicked off.
+    const kickoffTime = new Date().toISOString();
+    sub.textContent = 'Waiting for routine to write its summary to the log…';
+
+    let newRow = null;
+    for(let i = 0; i < 60; i++){ // up to 5 min (60 × 5s)
+      await new Promise(r=>setTimeout(r, 5000));
+      const {data} = await sb.from('customer_sync_log')
+        .select('*')
+        .gte('run_at', kickoffTime)
+        .eq('triggered_by','routine')
+        .order('run_at',{ascending:false}).limit(1);
+      if(data && data.length){ newRow = data[0]; break; }
+      sub.textContent = `Waiting… (${(i+1)*5}s)`;
+    }
+
+    if(!newRow){
+      status.textContent = 'Routine triggered but no log entry yet';
+      sub.innerHTML = 'The routine was called, but hasn\'t written to customer_sync_log within 5 minutes. Check the routine session URL or run manually. Session: <code>' + (resp.session_url || resp.url || 'see Claude Code console') + '</code>';
+      return;
+    }
+
+    status.textContent = 'Complete';
+    const d = (newRow.duration_ms || 0) / 1000;
+    sub.textContent = `${d.toFixed(1)}s · ${newRow.updated_count} updated · ${newRow.created_count} new · ${newRow.unchanged_count} unchanged`;
+
+    result.style.display = 'block';
+    result.innerHTML = `
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px">
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:10px">
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px;text-align:center">
+            <div style="font-size:20px;font-weight:700;color:var(--blue)">${newRow.updated_count.toLocaleString()}</div>
+            <div style="font-size:11px;color:var(--text3)">Updated</div>
+          </div>
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px;text-align:center">
+            <div style="font-size:20px;font-weight:700;color:var(--green)">${newRow.created_count.toLocaleString()}</div>
+            <div style="font-size:11px;color:var(--text3)">New</div>
+          </div>
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px;text-align:center">
+            <div style="font-size:20px;font-weight:700;color:var(--text3)">${newRow.unchanged_count.toLocaleString()}</div>
+            <div style="font-size:11px;color:var(--text3)">Unchanged</div>
+          </div>
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px;text-align:center">
+            <div style="font-size:20px;font-weight:700;color:${newRow.error_count?'var(--red)':'var(--text3)'}">${newRow.error_count.toLocaleString()}</div>
+            <div style="font-size:11px;color:var(--text3)">Errors</div>
+          </div>
+        </div>
+        ${newRow.changes_summary && newRow.changes_summary.length ? `<details style="margin-top:8px"><summary style="cursor:pointer;font-size:12px;color:var(--text2)">${newRow.changes_summary.length} customers updated — click to expand</summary><pre style="font-size:11px;background:var(--surface);padding:10px;border-radius:4px;max-height:220px;overflow:auto;margin-top:6px">${x(JSON.stringify(newRow.changes_summary.slice(0,50),null,2))}</pre></details>` : ''}
+      </div>`;
+    loadLastSyncTimestamps();
+  } catch(e){
+    status.textContent = 'Error';
+    sub.textContent = e.message || String(e);
+  }
+}
+
+async function runSyncMailerLite(){
+  const progress = document.getElementById('ml-progress');
+  const status = document.getElementById('ml-status');
+  const sub = document.getElementById('ml-subtext');
+  const result = document.getElementById('ml-result');
+  result.style.display = 'none';
+  progress.style.display = 'block';
+  rdSetDial('ml', 0);
+  status.textContent = 'Fetching routine config…';
+  sub.textContent = '';
+
+  try {
+    const cfg = await loadRoutineConfig('sync_mailerlite');
+    if(!cfg.endpoint || !cfg.token){
+      status.textContent = 'Routine not configured';
+      sub.innerHTML = 'Set <code>sync_mailerlite_routine_endpoint</code> and <code>sync_mailerlite_routine_token</code> in <code>app_settings</code>. See <code>routines/sync-mailerlite.md</code> in the repo.';
+      return;
+    }
+
+    status.textContent = 'Triggering routine…';
+    sub.textContent = 'Claude is syncing latest campaign + refreshing subscriptions';
+    const timer = rdAnimateDial('ml', 60);
+
+    const res = await fetch(cfg.endpoint, {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + cfg.token,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ message: 'Run the Sync MailerLite routine now. triggered_by=crm-ui' })
+    });
+
+    clearInterval(timer);
+
+    if(!res.ok){
+      const txt = await res.text();
+      rdSetDial('ml', 0);
+      status.textContent = 'Routine call failed';
+      sub.textContent = `HTTP ${res.status}: ${txt.substring(0,200)}`;
+      return;
+    }
+
+    await res.json();
+    rdSetDial('ml', 100);
+    status.textContent = 'Routine started — running in the cloud';
+
+    const kickoffTime = new Date().toISOString();
+    sub.textContent = 'Waiting for routine summary…';
+
+    let newRow = null;
+    for(let i = 0; i < 60; i++){
+      await new Promise(r=>setTimeout(r, 5000));
+      const {data} = await sb.from('ml_sync_log')
+        .select('*')
+        .gte('run_at', kickoffTime)
+        .eq('run_type','routine')
+        .order('run_at',{ascending:false}).limit(1);
+      if(data && data.length){ newRow = data[0]; break; }
+      sub.textContent = `Waiting… (${(i+1)*5}s)`;
+    }
+
+    if(!newRow){
+      status.textContent = 'Routine triggered but no log entry yet';
+      sub.textContent = 'Check the routine session in Claude Code console.';
+      return;
+    }
+
+    status.textContent = 'Complete';
+    const d = (newRow.duration_ms || 0) / 1000;
+    sub.textContent = `${d.toFixed(1)}s · ${newRow.events_created} events · ${newRow.matched_customers} customers matched`;
+
+    const details = newRow.campaign_details || [];
+    result.style.display = 'block';
+    result.innerHTML = `
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px">
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:10px">
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px;text-align:center">
+            <div style="font-size:20px;font-weight:700;color:var(--teal,#14b8a6)">${newRow.events_created.toLocaleString()}</div>
+            <div style="font-size:11px;color:var(--text3)">Events Created</div>
+          </div>
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px;text-align:center">
+            <div style="font-size:20px;font-weight:700;color:var(--blue)">${newRow.matched_customers.toLocaleString()}</div>
+            <div style="font-size:11px;color:var(--text3)">Customers Matched</div>
+          </div>
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px;text-align:center">
+            <div style="font-size:20px;font-weight:700;color:var(--text3)">${(newRow.unmatched_emails||[]).length.toLocaleString()}</div>
+            <div style="font-size:11px;color:var(--text3)">Unmatched Emails</div>
+          </div>
+        </div>
+        ${details.length ? details.map(d=>`<div style="font-size:12px;margin-top:6px"><strong>${x(d.name||d.id||'(campaign)')}</strong> — ${d.events_inserted||0} events · ${d.matched||0} matched${d.skipped_already_synced?' <span style="color:var(--text3)">(already synced)</span>':''}</div>`).join('') : ''}
+        ${newRow.unmatched_emails && newRow.unmatched_emails.length ? `<details style="margin-top:10px"><summary style="cursor:pointer;font-size:12px;color:var(--text2)">${newRow.unmatched_emails.length} unmatched emails — click to expand</summary><pre style="font-size:11px;background:var(--surface);padding:10px;border-radius:4px;max-height:220px;overflow:auto;margin-top:6px">${x(newRow.unmatched_emails.join('\n'))}</pre></details>` : ''}
+      </div>`;
+    loadLastSyncTimestamps();
+  } catch(e){
+    status.textContent = 'Error';
+    sub.textContent = e.message || String(e);
+  }
+}
+
+async function loadRoutineConfig(prefix){
+  const {data} = await sb.from('app_settings').select('key,value').in('key',[prefix+'_routine_endpoint', prefix+'_routine_token']);
+  const out = { endpoint: null, token: null };
+  (data||[]).forEach(r=>{
+    if(r.key === prefix+'_routine_endpoint') out.endpoint = r.value;
+    if(r.key === prefix+'_routine_token') out.token = r.value;
+  });
+  return out;
 }
 
 async function handleCustomerSyncFile(f){
