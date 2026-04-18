@@ -97,6 +97,13 @@ textarea.f-input{resize:vertical;min-height:72px}
 .pill:hover{border-color:var(--border2);color:var(--text)}.pill.on{background:var(--accent);color:#fff;border-color:var(--accent)}
 /* STATS */
 .stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px}
+.dash-actions{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px}
+.dash-action-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:52px}
+.dash-action-left{display:flex;align-items:center;gap:10px;flex:1;min-width:0}
+.dash-action-last{font-size:11px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dash-action-progress{display:none;align-items:center;gap:8px}
+.dash-action-progress.active{display:flex}
+.dash-action-status{font-size:12px;color:var(--text2);font-weight:500;white-space:nowrap}
 .stat-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px 18px}
 .stat-n{font-size:26px;font-weight:700;letter-spacing:-.8px;line-height:1;font-variant-numeric:tabular-nums}
 .stat-l{font-size:12px;color:var(--text2);margin-top:5px;font-weight:500}
@@ -287,7 +294,7 @@ tbody tr{transition:background .1s}tbody tr:hover{background:var(--surface2);cur
   <div class="main">
     <div class="topbar">
       <div class="topbar-title" id="tb-title">Dashboard</div>
-      <div class="topbar-version" title="CRM build version">v2 · 18 Apr 26</div>
+      <div class="topbar-version" title="CRM build version">v3 · 18 Apr 26</div>
       <div class="topbar-sub" id="tb-sub"></div>
       <div class="topbar-right" id="tb-actions"></div>
     </div>
@@ -530,6 +537,34 @@ async function renderDashboard(){
     sb.from('customers').select('id,company_name,last_order_date,status').eq('status','active').lt('last_order_date',ninety).order('last_order_date').limit(8),
   ]);
   setPage(`
+    <div class="dash-actions">
+      <div class="dash-action-card">
+        <div class="dash-action-left">
+          <button class="btn btn-primary btn-sm" onclick="runUpdateCustomers(true)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> Update Customers</button>
+          <span id="dash-uc-last" class="dash-action-last"></span>
+        </div>
+        <div id="dash-uc-progress" class="dash-action-progress">
+          <svg width="28" height="28" viewBox="0 0 64 64" style="flex-shrink:0">
+            <circle cx="32" cy="32" r="28" fill="none" stroke="var(--border)" stroke-width="8"/>
+            <circle id="dash-uc-dial-fg" cx="32" cy="32" r="28" fill="none" stroke="var(--blue)" stroke-width="8" stroke-dasharray="175.93" stroke-dashoffset="175.93" stroke-linecap="round" transform="rotate(-90 32 32)" style="transition:stroke-dashoffset .3s ease"/>
+          </svg>
+          <span id="dash-uc-status" class="dash-action-status">Running…</span>
+        </div>
+      </div>
+      <div class="dash-action-card">
+        <div class="dash-action-left">
+          <button class="btn btn-primary btn-sm" onclick="runSyncMailerLite(true)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4z"/></svg> Sync MailerLite</button>
+          <span id="dash-ml-last" class="dash-action-last"></span>
+        </div>
+        <div id="dash-ml-progress" class="dash-action-progress">
+          <svg width="28" height="28" viewBox="0 0 64 64" style="flex-shrink:0">
+            <circle cx="32" cy="32" r="28" fill="none" stroke="var(--border)" stroke-width="8"/>
+            <circle id="dash-ml-dial-fg" cx="32" cy="32" r="28" fill="none" stroke="var(--teal,#14b8a6)" stroke-width="8" stroke-dasharray="175.93" stroke-dashoffset="175.93" stroke-linecap="round" transform="rotate(-90 32 32)" style="transition:stroke-dashoffset .3s ease"/>
+          </svg>
+          <span id="dash-ml-status" class="dash-action-status">Running…</span>
+        </div>
+      </div>
+    </div>
     <div class="stats-grid">
       <div class="stat-card"><div class="stat-n">${n(r1.count)}</div><div class="stat-l">Total Customers</div></div>
       <div class="stat-card"><div class="stat-n" style="color:var(--green)">${n(r2.count)}</div><div class="stat-l">Active</div></div>
@@ -568,6 +603,8 @@ async function renderDashboard(){
       </div>
     </div>
   `);
+  // Populate "Last run" timestamps on the Dashboard action cards
+  loadLastSyncTimestamps();
 }
 
 // ═══ CUSTOMERS LIST ═══
@@ -1919,11 +1956,32 @@ async function loadLastSyncTimestamps(){
     const fmt = (ts) => ts ? 'Last run: ' + new Date(ts).toLocaleString('en-GB',{dateStyle:'short',timeStyle:'short'}) : 'Never run';
     const uc = data.find(r=>r.key==='kashflow_customer_last_sync');
     const ml = data.find(r=>r.key==='mailerlite_last_subscription_refresh');
+    // Settings page elements
     const ucEl = document.getElementById('uc-last');
     const mlEl = document.getElementById('ml-last');
     if(ucEl) ucEl.textContent = fmt(uc?.value_ts);
     if(mlEl) mlEl.textContent = fmt(ml?.value_ts);
+    // Dashboard elements (same data, different IDs)
+    const ducEl = document.getElementById('dash-uc-last');
+    const dmlEl = document.getElementById('dash-ml-last');
+    if(ducEl) ducEl.textContent = fmt(uc?.value_ts);
+    if(dmlEl) dmlEl.textContent = fmt(ml?.value_ts);
   } catch(e){ console.warn('loadLastSyncTimestamps failed', e); }
+}
+
+// Mirror progress dial state to Dashboard mini-dial if present
+function mirrorToDash(kind, pct, status){
+  const prog = document.getElementById('dash-'+kind+'-progress');
+  const dial = document.getElementById('dash-'+kind+'-dial-fg');
+  const stat = document.getElementById('dash-'+kind+'-status');
+  if(!prog) return; // not on Dashboard
+  if(pct === -1){ prog.classList.remove('active'); return; }
+  prog.classList.add('active');
+  if(dial){
+    const circ = 2 * Math.PI * 28;
+    dial.setAttribute('stroke-dashoffset', String(circ * (1 - pct/100)));
+  }
+  if(stat && status) stat.textContent = status;
 }
 
 // ═══ ROUTINE-TRIGGER BUTTONS ═══
@@ -1931,9 +1989,35 @@ async function loadLastSyncTimestamps(){
 // Generic SVG dial updater — reused by both buttons
 function rdSetDial(dialPrefix, pct){
   const fg = document.getElementById(dialPrefix+'-dial-fg');
-  if(!fg) return;
-  const circ = 2 * Math.PI * 28;
-  fg.setAttribute('stroke-dashoffset', String(circ * (1 - pct/100)));
+  if(fg){
+    const circ = 2 * Math.PI * 28;
+    fg.setAttribute('stroke-dashoffset', String(circ * (1 - pct/100)));
+  }
+  // Also mirror to Dashboard mini-dial if this is uc or ml
+  if(dialPrefix === 'uc' || dialPrefix === 'ml'){
+    const dfg = document.getElementById('dash-'+dialPrefix+'-dial-fg');
+    const prog = document.getElementById('dash-'+dialPrefix+'-progress');
+    if(dfg){
+      const circ = 2 * Math.PI * 28;
+      dfg.setAttribute('stroke-dashoffset', String(circ * (1 - pct/100)));
+    }
+    if(prog){
+      if(pct > 0 && pct < 100) prog.classList.add('active');
+      // Don't hide immediately on 100 — let user see it finish
+    }
+  }
+}
+
+// Hide dashboard mini-dial (called when work completes + result shown)
+function hideDashProgress(prefix){
+  const prog = document.getElementById('dash-'+prefix+'-progress');
+  if(prog) prog.classList.remove('active');
+}
+
+// Set dashboard status label
+function setDashStatus(prefix, text){
+  const el = document.getElementById('dash-'+prefix+'-status');
+  if(el) el.textContent = text;
 }
 
 // Animate the dial from 0 to ~90% over est. duration so the user sees progress
@@ -1953,26 +2037,33 @@ function rdAnimateDial(dialPrefix, estSeconds, untilPct){
 }
 
 async function runUpdateCustomers(){
+  // Optional elements — present on Settings page, absent on Dashboard
   const progress = document.getElementById('uc-progress');
-  const status = document.getElementById('uc-status');
-  const sub = document.getElementById('uc-subtext');
+  const statusEl = document.getElementById('uc-status');
+  const subEl = document.getElementById('uc-subtext');
   const result = document.getElementById('uc-result');
-  result.style.display = 'none';
-  progress.style.display = 'block';
+  const setStatus = (txt) => { if(statusEl) statusEl.textContent = txt; setDashStatus('uc', txt); };
+  const setSub = (txt) => { if(subEl) subEl.textContent = txt; };
+  if(result) result.style.display = 'none';
+  if(progress) progress.style.display = 'block';
+  // Activate Dashboard mini-dial if we're on Dashboard
+  const dashProg = document.getElementById('dash-uc-progress');
+  if(dashProg) dashProg.classList.add('active');
   rdSetDial('uc', 0);
-  status.textContent = 'Fetching routine config…';
-  sub.textContent = '';
+  setStatus('Fetching routine config…');
+  setSub('');
 
   try {
     const cfg = await loadRoutineConfig('update_customers');
     if(!cfg.endpoint || !cfg.token){
-      status.textContent = 'Routine not configured';
-      sub.innerHTML = 'Set <code>update_customers_routine_endpoint</code> and <code>update_customers_routine_token</code> in <code>app_settings</code>. See <code>routines/update-customers.md</code> in the repo for setup instructions.';
+      setStatus('Routine not configured');
+      setSub('Set update_customers_routine_endpoint and _token in app_settings. See routines/update-customers.md.');
+      hideDashProgress('uc');
       return;
     }
 
-    status.textContent = 'Triggering routine…';
-    sub.textContent = 'Claude is comparing KashFlow against Supabase';
+    setStatus('Triggering routine…');
+    setSub('Claude is comparing KashFlow against Supabase');
     const timer = rdAnimateDial('uc', 40);
 
     const res = await fetch(cfg.endpoint, {
@@ -1989,23 +2080,21 @@ async function runUpdateCustomers(){
     if(!res.ok){
       const txt = await res.text();
       rdSetDial('uc', 0);
-      status.textContent = 'Routine call failed';
-      sub.textContent = `HTTP ${res.status}: ${txt.substring(0,200)}`;
+      setStatus('Routine call failed');
+      setSub(`HTTP ${res.status}: ${txt.substring(0,200)}`);
+      hideDashProgress('uc');
       return;
     }
 
     const resp = await res.json();
     rdSetDial('uc', 100);
-    status.textContent = 'Routine started — running in the cloud';
+    setStatus('Routine started — running in the cloud');
 
-    // Most Claude Code routine API responses return a session URL / run ID.
-    // The actual result lands in customer_sync_log when the routine writes its summary.
-    // Poll customer_sync_log for a new row that didn't exist before we kicked off.
     const kickoffTime = new Date().toISOString();
-    sub.textContent = 'Waiting for routine to write its summary to the log…';
+    setSub('Waiting for routine to write its summary to the log…');
 
     let newRow = null;
-    for(let i = 0; i < 60; i++){ // up to 5 min (60 × 5s)
+    for(let i = 0; i < 60; i++){
       await new Promise(r=>setTimeout(r, 5000));
       const {data} = await sb.from('customer_sync_log')
         .select('*')
@@ -2013,70 +2102,81 @@ async function runUpdateCustomers(){
         .eq('triggered_by','routine')
         .order('run_at',{ascending:false}).limit(1);
       if(data && data.length){ newRow = data[0]; break; }
-      sub.textContent = `Waiting… (${(i+1)*5}s)`;
+      setSub(`Waiting… (${(i+1)*5}s)`);
     }
 
     if(!newRow){
-      status.textContent = 'Routine triggered but no log entry yet';
-      sub.innerHTML = 'The routine was called, but hasn\'t written to customer_sync_log within 5 minutes. Check the routine session URL or run manually. Session: <code>' + (resp.session_url || resp.url || 'see Claude Code console') + '</code>';
+      setStatus('Routine triggered but no log entry yet');
+      setSub('Routine was called but hasn\'t written to customer_sync_log within 5 minutes. Check the Claude Code console.');
+      hideDashProgress('uc');
       return;
     }
 
-    status.textContent = 'Complete';
+    setStatus('Complete');
     const d = (newRow.duration_ms || 0) / 1000;
-    sub.textContent = `${d.toFixed(1)}s · ${newRow.updated_count} updated · ${newRow.created_count} new · ${newRow.unchanged_count} unchanged`;
+    setSub(`${d.toFixed(1)}s · ${newRow.updated_count} updated · ${newRow.created_count} new · ${newRow.unchanged_count} unchanged`);
 
-    result.style.display = 'block';
-    result.innerHTML = `
-      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px">
-        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:10px">
-          <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px;text-align:center">
-            <div style="font-size:20px;font-weight:700;color:var(--blue)">${newRow.updated_count.toLocaleString()}</div>
-            <div style="font-size:11px;color:var(--text3)">Updated</div>
+    if(result){
+      result.style.display = 'block';
+      result.innerHTML = `
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px">
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:10px">
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px;text-align:center">
+              <div style="font-size:20px;font-weight:700;color:var(--blue)">${newRow.updated_count.toLocaleString()}</div>
+              <div style="font-size:11px;color:var(--text3)">Updated</div>
+            </div>
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px;text-align:center">
+              <div style="font-size:20px;font-weight:700;color:var(--green)">${newRow.created_count.toLocaleString()}</div>
+              <div style="font-size:11px;color:var(--text3)">New</div>
+            </div>
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px;text-align:center">
+              <div style="font-size:20px;font-weight:700;color:var(--text3)">${newRow.unchanged_count.toLocaleString()}</div>
+              <div style="font-size:11px;color:var(--text3)">Unchanged</div>
+            </div>
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px;text-align:center">
+              <div style="font-size:20px;font-weight:700;color:${newRow.error_count?'var(--red)':'var(--text3)'}">${newRow.error_count.toLocaleString()}</div>
+              <div style="font-size:11px;color:var(--text3)">Errors</div>
+            </div>
           </div>
-          <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px;text-align:center">
-            <div style="font-size:20px;font-weight:700;color:var(--green)">${newRow.created_count.toLocaleString()}</div>
-            <div style="font-size:11px;color:var(--text3)">New</div>
-          </div>
-          <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px;text-align:center">
-            <div style="font-size:20px;font-weight:700;color:var(--text3)">${newRow.unchanged_count.toLocaleString()}</div>
-            <div style="font-size:11px;color:var(--text3)">Unchanged</div>
-          </div>
-          <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px;text-align:center">
-            <div style="font-size:20px;font-weight:700;color:${newRow.error_count?'var(--red)':'var(--text3)'}">${newRow.error_count.toLocaleString()}</div>
-            <div style="font-size:11px;color:var(--text3)">Errors</div>
-          </div>
-        </div>
-        ${newRow.changes_summary && newRow.changes_summary.length ? `<details style="margin-top:8px"><summary style="cursor:pointer;font-size:12px;color:var(--text2)">${newRow.changes_summary.length} customers updated — click to expand</summary><pre style="font-size:11px;background:var(--surface);padding:10px;border-radius:4px;max-height:220px;overflow:auto;margin-top:6px">${x(JSON.stringify(newRow.changes_summary.slice(0,50),null,2))}</pre></details>` : ''}
-      </div>`;
+          ${newRow.changes_summary && newRow.changes_summary.length ? `<details style="margin-top:8px"><summary style="cursor:pointer;font-size:12px;color:var(--text2)">${newRow.changes_summary.length} customers updated — click to expand</summary><pre style="font-size:11px;background:var(--surface);padding:10px;border-radius:4px;max-height:220px;overflow:auto;margin-top:6px">${x(JSON.stringify(newRow.changes_summary.slice(0,50),null,2))}</pre></details>` : ''}
+        </div>`;
+    }
+    // Auto-hide Dashboard dial 3 seconds after completion
+    setTimeout(()=>hideDashProgress('uc'), 3000);
     loadLastSyncTimestamps();
   } catch(e){
-    status.textContent = 'Error';
-    sub.textContent = e.message || String(e);
+    setStatus('Error');
+    setSub(e.message || String(e));
+    hideDashProgress('uc');
   }
 }
 
 async function runSyncMailerLite(){
   const progress = document.getElementById('ml-progress');
-  const status = document.getElementById('ml-status');
-  const sub = document.getElementById('ml-subtext');
+  const statusEl = document.getElementById('ml-status');
+  const subEl = document.getElementById('ml-subtext');
   const result = document.getElementById('ml-result');
-  result.style.display = 'none';
-  progress.style.display = 'block';
+  const setStatus = (txt) => { if(statusEl) statusEl.textContent = txt; setDashStatus('ml', txt); };
+  const setSub = (txt) => { if(subEl) subEl.textContent = txt; };
+  if(result) result.style.display = 'none';
+  if(progress) progress.style.display = 'block';
+  const dashProg = document.getElementById('dash-ml-progress');
+  if(dashProg) dashProg.classList.add('active');
   rdSetDial('ml', 0);
-  status.textContent = 'Fetching routine config…';
-  sub.textContent = '';
+  setStatus('Fetching routine config…');
+  setSub('');
 
   try {
     const cfg = await loadRoutineConfig('sync_mailerlite');
     if(!cfg.endpoint || !cfg.token){
-      status.textContent = 'Routine not configured';
-      sub.innerHTML = 'Set <code>sync_mailerlite_routine_endpoint</code> and <code>sync_mailerlite_routine_token</code> in <code>app_settings</code>. See <code>routines/sync-mailerlite.md</code> in the repo.';
+      setStatus('Routine not configured');
+      setSub('Set sync_mailerlite_routine_endpoint and _token in app_settings. See routines/sync-mailerlite.md.');
+      hideDashProgress('ml');
       return;
     }
 
-    status.textContent = 'Triggering routine…';
-    sub.textContent = 'Claude is syncing latest campaign + refreshing subscriptions';
+    setStatus('Triggering routine…');
+    setSub('Claude is syncing latest campaign + refreshing subscriptions');
     const timer = rdAnimateDial('ml', 60);
 
     const res = await fetch(cfg.endpoint, {
@@ -2093,17 +2193,18 @@ async function runSyncMailerLite(){
     if(!res.ok){
       const txt = await res.text();
       rdSetDial('ml', 0);
-      status.textContent = 'Routine call failed';
-      sub.textContent = `HTTP ${res.status}: ${txt.substring(0,200)}`;
+      setStatus('Routine call failed');
+      setSub(`HTTP ${res.status}: ${txt.substring(0,200)}`);
+      hideDashProgress('ml');
       return;
     }
 
     await res.json();
     rdSetDial('ml', 100);
-    status.textContent = 'Routine started — running in the cloud';
+    setStatus('Routine started — running in the cloud');
 
     const kickoffTime = new Date().toISOString();
-    sub.textContent = 'Waiting for routine summary…';
+    setSub('Waiting for routine summary…');
 
     let newRow = null;
     for(let i = 0; i < 60; i++){
@@ -2114,44 +2215,49 @@ async function runSyncMailerLite(){
         .eq('run_type','routine')
         .order('run_at',{ascending:false}).limit(1);
       if(data && data.length){ newRow = data[0]; break; }
-      sub.textContent = `Waiting… (${(i+1)*5}s)`;
+      setSub(`Waiting… (${(i+1)*5}s)`);
     }
 
     if(!newRow){
-      status.textContent = 'Routine triggered but no log entry yet';
-      sub.textContent = 'Check the routine session in Claude Code console.';
+      setStatus('Routine triggered but no log entry yet');
+      setSub('Check the routine session in Claude Code console.');
+      hideDashProgress('ml');
       return;
     }
 
-    status.textContent = 'Complete';
+    setStatus('Complete');
     const d = (newRow.duration_ms || 0) / 1000;
-    sub.textContent = `${d.toFixed(1)}s · ${newRow.events_created} events · ${newRow.matched_customers} customers matched`;
+    setSub(`${d.toFixed(1)}s · ${newRow.events_created} events · ${newRow.matched_customers} customers matched`);
 
     const details = newRow.campaign_details || [];
-    result.style.display = 'block';
-    result.innerHTML = `
-      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px">
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:10px">
-          <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px;text-align:center">
-            <div style="font-size:20px;font-weight:700;color:var(--teal,#14b8a6)">${newRow.events_created.toLocaleString()}</div>
-            <div style="font-size:11px;color:var(--text3)">Events Created</div>
+    if(result){
+      result.style.display = 'block';
+      result.innerHTML = `
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px">
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:10px">
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px;text-align:center">
+              <div style="font-size:20px;font-weight:700;color:var(--teal,#14b8a6)">${newRow.events_created.toLocaleString()}</div>
+              <div style="font-size:11px;color:var(--text3)">Events Created</div>
+            </div>
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px;text-align:center">
+              <div style="font-size:20px;font-weight:700;color:var(--blue)">${newRow.matched_customers.toLocaleString()}</div>
+              <div style="font-size:11px;color:var(--text3)">Customers Matched</div>
+            </div>
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px;text-align:center">
+              <div style="font-size:20px;font-weight:700;color:var(--text3)">${(newRow.unmatched_emails||[]).length.toLocaleString()}</div>
+              <div style="font-size:11px;color:var(--text3)">Unmatched Emails</div>
+            </div>
           </div>
-          <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px;text-align:center">
-            <div style="font-size:20px;font-weight:700;color:var(--blue)">${newRow.matched_customers.toLocaleString()}</div>
-            <div style="font-size:11px;color:var(--text3)">Customers Matched</div>
-          </div>
-          <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px;text-align:center">
-            <div style="font-size:20px;font-weight:700;color:var(--text3)">${(newRow.unmatched_emails||[]).length.toLocaleString()}</div>
-            <div style="font-size:11px;color:var(--text3)">Unmatched Emails</div>
-          </div>
-        </div>
-        ${details.length ? details.map(d=>`<div style="font-size:12px;margin-top:6px"><strong>${x(d.name||d.id||'(campaign)')}</strong> — ${d.events_inserted||0} events · ${d.matched||0} matched${d.skipped_already_synced?' <span style="color:var(--text3)">(already synced)</span>':''}</div>`).join('') : ''}
-        ${newRow.unmatched_emails && newRow.unmatched_emails.length ? `<details style="margin-top:10px"><summary style="cursor:pointer;font-size:12px;color:var(--text2)">${newRow.unmatched_emails.length} unmatched emails — click to expand</summary><pre style="font-size:11px;background:var(--surface);padding:10px;border-radius:4px;max-height:220px;overflow:auto;margin-top:6px">${x(newRow.unmatched_emails.join('\n'))}</pre></details>` : ''}
-      </div>`;
+          ${details.length ? details.map(d=>`<div style="font-size:12px;margin-top:6px"><strong>${x(d.name||d.id||'(campaign)')}</strong> — ${d.events_inserted||0} events · ${d.matched||0} matched${d.skipped_already_synced?' <span style="color:var(--text3)">(already synced)</span>':''}</div>`).join('') : ''}
+          ${newRow.unmatched_emails && newRow.unmatched_emails.length ? `<details style="margin-top:10px"><summary style="cursor:pointer;font-size:12px;color:var(--text2)">${newRow.unmatched_emails.length} unmatched emails — click to expand</summary><pre style="font-size:11px;background:var(--surface);padding:10px;border-radius:4px;max-height:220px;overflow:auto;margin-top:6px">${x(newRow.unmatched_emails.join('\n'))}</pre></details>` : ''}
+        </div>`;
+    }
+    setTimeout(()=>hideDashProgress('ml'), 3000);
     loadLastSyncTimestamps();
   } catch(e){
-    status.textContent = 'Error';
-    sub.textContent = e.message || String(e);
+    setStatus('Error');
+    setSub(e.message || String(e));
+    hideDashProgress('ml');
   }
 }
 
