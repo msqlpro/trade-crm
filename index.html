@@ -1750,6 +1750,39 @@ function renderSettings(){
   setPage(`
     <div>
       <div class="settings-card">
+        <div class="settings-head">Customer Data Sync</div>
+        <div class="settings-body">
+          <div class="settings-note">Refresh customer records from KashFlow. Upload a CSV exported from the brainbox_candy MySQL database — only changed rows are updated. CRM-only fields (pipeline stage, hidden, tags, notes) are never touched.</div>
+          <div style="margin-top:14px">
+            <div id="cds-drop" style="border:2px dashed var(--border);border-radius:8px;padding:24px;text-align:center;cursor:pointer;background:var(--surface2)">
+              <div style="font-size:14px;font-weight:600;margin-bottom:4px">Drop CSV here or click to browse</div>
+              <div style="font-size:12px;color:var(--text3)">Expected columns: kf_code, company_name, address_1, address_2, address_3, address_4, postcode, country_name, phone, mobile, website, payment_terms, discount, source, store_type, vat_number, customer_notes, delivery_address_1…4, delivery_postcode</div>
+              <input type="file" id="cds-file" accept=".csv" style="display:none"/>
+            </div>
+          </div>
+          <div id="cds-preview" style="margin-top:14px;display:none"></div>
+          <div id="cds-progress" style="margin-top:16px;display:none">
+            <div style="display:flex;align-items:center;gap:16px">
+              <svg id="cds-dial" width="64" height="64" viewBox="0 0 64 64" style="flex-shrink:0">
+                <circle cx="32" cy="32" r="28" fill="none" stroke="var(--border)" stroke-width="6"/>
+                <circle id="cds-dial-fg" cx="32" cy="32" r="28" fill="none" stroke="var(--blue)" stroke-width="6" stroke-dasharray="175.93" stroke-dashoffset="175.93" stroke-linecap="round" transform="rotate(-90 32 32)" style="transition:stroke-dashoffset .2s ease"/>
+                <text id="cds-dial-pct" x="32" y="37" text-anchor="middle" font-size="14" font-weight="700" fill="var(--text)">0%</text>
+              </svg>
+              <div style="flex:1">
+                <div id="cds-status" style="font-size:13px;font-weight:600">Preparing…</div>
+                <div id="cds-subtext" style="font-size:12px;color:var(--text3);margin-top:4px"></div>
+              </div>
+            </div>
+          </div>
+          <div id="cds-result" style="margin-top:16px;display:none"></div>
+          <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border);font-size:12px;color:var(--text3)">
+            <strong style="color:var(--text2)">Need the CSV?</strong> Ask Claude: "Export the brainbox_candy customers table as a CRM-sync CSV".
+            <a href="#" onclick="go('customer-sync-history');return false" style="color:var(--blue);margin-left:10px">View sync history</a>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-card">
         <div class="settings-head">MailerLite Integration</div>
         <div class="settings-body">
           <div class="settings-note">Your API key is stored in the database and used to sync subscriber activity into customer timelines. Use a MailerLite API token (Settings → Integrations → API in MailerLite).</div>
@@ -1783,7 +1816,272 @@ function renderSettings(){
     </div>
   `);
   loadHiddenCustomers();
+  wireCustomerSyncDrop();
 }
+
+// ═══ CUSTOMER DATA SYNC ═══
+const CDS_FIELD_MAP = {
+  // CSV column name → Supabase column name
+  kf_code: 'kf_code',
+  company_name: 'company_name',
+  address_1: 'address_1', address_2: 'address_2', address_3: 'address_3', address_4: 'address_4',
+  postcode: 'postcode',
+  country_name: 'country_name',
+  phone: 'phone', mobile: 'mobile',
+  website: 'website',
+  payment_terms: 'payment_terms',
+  discount: 'discount',
+  source: 'source',
+  store_type: 'store_type',
+  vat_number: 'vat_number',
+  customer_notes: 'customer_notes',
+  delivery_address_1: 'delivery_address_1', delivery_address_2: 'delivery_address_2',
+  delivery_address_3: 'delivery_address_3', delivery_address_4: 'delivery_address_4',
+  delivery_postcode: 'delivery_postcode',
+};
+
+function wireCustomerSyncDrop(){
+  const drop = document.getElementById('cds-drop');
+  const file = document.getElementById('cds-file');
+  if(!drop || !file) return;
+  drop.addEventListener('click', ()=>file.click());
+  drop.addEventListener('dragover', e=>{e.preventDefault();drop.style.background='var(--blue-bg, #eaf4ff)';});
+  drop.addEventListener('dragleave', ()=>{drop.style.background='var(--surface2)';});
+  drop.addEventListener('drop', e=>{
+    e.preventDefault();
+    drop.style.background='var(--surface2)';
+    if(e.dataTransfer.files.length) handleCustomerSyncFile(e.dataTransfer.files[0]);
+  });
+  file.addEventListener('change', ()=>{
+    if(file.files.length) handleCustomerSyncFile(file.files[0]);
+  });
+}
+
+async function handleCustomerSyncFile(f){
+  const preview = document.getElementById('cds-preview');
+  const result = document.getElementById('cds-result');
+  result.style.display='none';
+  preview.style.display='block';
+  preview.innerHTML = `<div style="font-size:13px;color:var(--text2)">Parsing <strong>${x(f.name)}</strong>…</div>`;
+  const text = await f.text();
+  const rows = parseCsvSimple(text);
+  if(!rows.length){
+    preview.innerHTML = `<div class="inline-err" style="display:block">CSV is empty or could not be parsed.</div>`;
+    return;
+  }
+  const headers = Object.keys(rows[0]);
+  const mapped = headers.filter(h=>CDS_FIELD_MAP[h]);
+  const unmapped = headers.filter(h=>!CDS_FIELD_MAP[h]);
+  if(!mapped.includes('kf_code')){
+    preview.innerHTML = `<div class="inline-err" style="display:block">CSV must include a <code>kf_code</code> column. Found: ${headers.join(', ')}</div>`;
+    return;
+  }
+  preview.innerHTML = `
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:12px">
+      <div style="font-size:13px;font-weight:600;margin-bottom:6px">${rows.length.toLocaleString()} rows · ${mapped.length} columns will be checked</div>
+      <div style="font-size:12px;color:var(--text3)">${mapped.map(m=>`<code>${m}</code>`).join(' ')}</div>
+      ${unmapped.length?`<div style="font-size:12px;color:var(--amber);margin-top:6px">Ignoring: ${unmapped.join(', ')}</div>`:''}
+      <div style="margin-top:12px;display:flex;gap:8px">
+        <button class="btn btn-primary btn-sm" onclick='runCustomerSync()'>Run Update</button>
+        <button class="btn btn-sm" onclick="document.getElementById('cds-preview').style.display='none'">Cancel</button>
+      </div>
+    </div>`;
+  window.__cdsRows = rows;
+  window.__cdsMapped = mapped;
+  window.__cdsFilename = f.name;
+}
+
+// Simple CSV parser that handles quoted fields with commas and newlines
+function parseCsvSimple(text){
+  const rows = [];
+  let i = 0, field = '', row = [], inQ = false;
+  while(i < text.length){
+    const c = text[i];
+    if(inQ){
+      if(c === '"' && text[i+1] === '"'){ field += '"'; i += 2; continue; }
+      if(c === '"'){ inQ = false; i++; continue; }
+      field += c; i++; continue;
+    }
+    if(c === '"'){ inQ = true; i++; continue; }
+    if(c === ','){ row.push(field); field=''; i++; continue; }
+    if(c === '\n' || c === '\r'){
+      if(field !== '' || row.length){ row.push(field); rows.push(row); row=[]; field=''; }
+      if(c === '\r' && text[i+1] === '\n') i += 2; else i++;
+      continue;
+    }
+    field += c; i++;
+  }
+  if(field !== '' || row.length){ row.push(field); rows.push(row); }
+  if(!rows.length) return [];
+  const headers = rows[0].map(h=>h.trim());
+  return rows.slice(1).filter(r=>r.some(v=>v!==''))
+    .map(r=>{const o={};headers.forEach((h,idx)=>{o[h]=(r[idx]||'').trim();});return o;});
+}
+
+function setDial(pct){
+  const fg = document.getElementById('cds-dial-fg');
+  const txt = document.getElementById('cds-dial-pct');
+  if(!fg) return;
+  const circ = 2 * Math.PI * 28;
+  fg.setAttribute('stroke-dashoffset', String(circ * (1 - pct/100)));
+  if(txt) txt.textContent = Math.round(pct) + '%';
+}
+
+async function runCustomerSync(){
+  const rows = window.__cdsRows || [];
+  const mapped = window.__cdsMapped || [];
+  const filename = window.__cdsFilename || 'unknown.csv';
+  if(!rows.length) return;
+
+  const startMs = Date.now();
+  document.getElementById('cds-preview').style.display='none';
+  document.getElementById('cds-progress').style.display='block';
+  const status = document.getElementById('cds-status');
+  const sub = document.getElementById('cds-subtext');
+  status.textContent = 'Fetching existing customer data…';
+  sub.textContent = '';
+  setDial(0);
+
+  // Fetch all existing customers — only the columns we care about — into a map by kf_code
+  const supabaseCols = ['id', ...mapped.map(m=>CDS_FIELD_MAP[m])];
+  const existing = new Map();
+  let from = 0;
+  const pageSize = 1000;
+  while(true){
+    const {data, error} = await sb.from('customers').select(supabaseCols.join(',')).range(from, from+pageSize-1);
+    if(error){ status.textContent = 'Error loading existing data'; sub.textContent = error.message; return; }
+    if(!data || !data.length) break;
+    data.forEach(c=>{ if(c.kf_code) existing.set(c.kf_code.trim(), c); });
+    if(data.length < pageSize) break;
+    from += pageSize;
+  }
+
+  status.textContent = `Comparing ${rows.length.toLocaleString()} rows…`;
+  sub.textContent = `${existing.size.toLocaleString()} existing customers loaded`;
+
+  const changes = [];
+  const errors = [];
+  let created = 0, updated = 0, unchanged = 0;
+
+  // Process in small batches to keep UI responsive
+  const batchSize = 50;
+  for(let i = 0; i < rows.length; i += batchSize){
+    const slice = rows.slice(i, i + batchSize);
+
+    for(const r of slice){
+      const kf = (r.kf_code || '').trim();
+      if(!kf){ errors.push({row: i, error:'missing kf_code'}); continue; }
+      const existingRec = existing.get(kf);
+
+      // Build payload of only mapped fields
+      const incoming = {};
+      mapped.forEach(m=>{
+        const col = CDS_FIELD_MAP[m];
+        let val = r[m];
+        if(val === undefined || val === null) return;
+        val = String(val).trim();
+        if(val === '') val = null;
+        // Coerce numeric fields
+        if(['discount','payment_terms'].includes(col) && val !== null){
+          const n = parseFloat(val);
+          val = isNaN(n) ? null : n;
+        }
+        incoming[col] = val;
+      });
+
+      try {
+        if(!existingRec){
+          // New customer — insert
+          incoming.kf_code = kf;
+          incoming.status = incoming.status || 'prospect';
+          const {error} = await sb.from('customers').insert(incoming);
+          if(error) throw error;
+          created++;
+        } else {
+          // Compare — only write if any mapped field has changed
+          const changedFields = [];
+          const updatePayload = {};
+          for(const col of Object.keys(incoming)){
+            const oldVal = existingRec[col] ?? null;
+            const newVal = incoming[col] ?? null;
+            const oldStr = oldVal === null ? '' : String(oldVal);
+            const newStr = newVal === null ? '' : String(newVal);
+            if(oldStr !== newStr){
+              changedFields.push(col);
+              updatePayload[col] = newVal;
+            }
+          }
+          if(changedFields.length){
+            updatePayload.updated_at = new Date().toISOString();
+            const {error} = await sb.from('customers').update(updatePayload).eq('id', existingRec.id);
+            if(error) throw error;
+            updated++;
+            if(changes.length < 500) changes.push({kf_code: kf, changed_fields: changedFields});
+          } else {
+            unchanged++;
+          }
+        }
+      } catch(e){
+        errors.push({kf_code: kf, error: e.message || String(e)});
+      }
+    }
+
+    const done = Math.min(i + batchSize, rows.length);
+    const pct = (done / rows.length) * 100;
+    setDial(pct);
+    status.textContent = `Checking ${done.toLocaleString()} of ${rows.length.toLocaleString()}…`;
+    sub.textContent = `${updated} updated · ${created} new · ${unchanged} unchanged · ${errors.length} errors`;
+    // yield to UI
+    await new Promise(r=>setTimeout(r, 0));
+  }
+
+  setDial(100);
+  status.textContent = 'Complete';
+  const duration = Date.now() - startMs;
+
+  // Log the run
+  try {
+    await sb.from('customer_sync_log').insert({
+      triggered_by: (S.user && S.user.email) || 'manual',
+      filename: filename,
+      total_rows: rows.length,
+      created_count: created,
+      updated_count: updated,
+      unchanged_count: unchanged,
+      error_count: errors.length,
+      duration_ms: duration,
+      changes_summary: changes,
+      errors: errors.slice(0, 200),
+    });
+  } catch(e){ console.warn('sync log write failed', e); }
+
+  const result = document.getElementById('cds-result');
+  result.style.display='block';
+  result.innerHTML = `
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:16px">
+      <div style="font-size:14px;font-weight:700;margin-bottom:10px">Sync complete in ${(duration/1000).toFixed(1)}s</div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px">
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px;text-align:center">
+          <div style="font-size:22px;font-weight:700;color:var(--blue)">${updated.toLocaleString()}</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:2px">Updated</div>
+        </div>
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px;text-align:center">
+          <div style="font-size:22px;font-weight:700;color:var(--green)">${created.toLocaleString()}</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:2px">New</div>
+        </div>
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px;text-align:center">
+          <div style="font-size:22px;font-weight:700;color:var(--text3)">${unchanged.toLocaleString()}</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:2px">Unchanged</div>
+        </div>
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px;text-align:center">
+          <div style="font-size:22px;font-weight:700;color:${errors.length?'var(--red)':'var(--text3)'}">${errors.length.toLocaleString()}</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:2px">Errors</div>
+        </div>
+      </div>
+      ${errors.length?`<details style="margin-top:8px"><summary style="cursor:pointer;font-size:12px;color:var(--red)">${errors.length} errors — click to expand</summary><pre style="font-size:11px;background:var(--surface);padding:10px;border-radius:4px;max-height:200px;overflow:auto;margin-top:6px">${x(JSON.stringify(errors.slice(0,50),null,2))}</pre></details>`:''}
+    </div>`;
+}
+
 
 async function loadHiddenCustomers(){
   const el=document.getElementById('hidden-cust-list');
