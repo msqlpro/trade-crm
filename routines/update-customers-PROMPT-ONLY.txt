@@ -15,9 +15,11 @@ The KashFlow team uses two name prefixes as control signals. Respect them exactl
 - **Double asterisk `**` (e.g. `**Acme Cards`)** = active territorial protection. Sync normally. Set `territorial_protection=true`. **KEEP the `**` prefix in `company_name`** — this is how the user identifies them at a glance when sorting alphabetically. Do NOT strip it.
 - **No prefix** = normal customer. Sync normally. `territorial_protection=false`.
 
-Detection rules in SQL (MariaDB):
-- `single_asterisk = Name LIKE '*%' AND Name NOT LIKE '**%'`
-- `double_asterisk = Name LIKE '**%'`
+**WARNING: Dave's `five_minute_customers` pipeline strips prefixes!** When copying from KashFlow, it converts `**` to `*` and removes regional suffixes like `(LD)`. This means `five_minute_customers.Name` is NOT reliable for prefix detection. **Always use the raw `brainbox_candy.customers.Name` field** (joined on CustomerID) for prefix detection and for writing to `company_name` in Supabase.
+
+Detection rules in SQL (MariaDB), using the authoritative raw `customers.Name`:
+- `single_asterisk = c.Name LIKE '*%' AND c.Name NOT LIKE '**%'`
+- `double_asterisk = c.Name LIKE '**%'`
 
 # CRM-OWNED columns — NEVER touch these
 
@@ -37,7 +39,7 @@ Also never overwrite: `last_12m_spend, prior_12m_spend, invoice_count, all_time_
 |---|---|---|
 | kf_customer_id | CustomerID | integer PK from KashFlow |
 | kf_code | Code | string key |
-| company_name | Name | **keep ** and * prefixes** |
+| company_name | Name (from **raw `customers`** via JOIN on CustomerID — five_minute_customers has prefixes stripped!) | **keep ** and * prefixes** |
 | address_1 | Street_Address | |
 | address_2 | Street_Address_2_Town | |
 | address_3 | Town | |
@@ -81,15 +83,29 @@ Read Supabase `sync_state`:
 
 ## Step 2 — Pull MySQL data
 
-- **Delta mode**: `WHERE last_updated >= '<last_sync - 1 day>'`
+- **Delta mode**: `WHERE fmc.last_updated >= '<last_sync - 1 day>'`
 - **Full sweep mode**: no WHERE clause (all ~7,077 rows)
 
-Join to `customer_sources` for source name:
+**IMPORTANT: Dave's `five_minute_customers` strips the `**` and `*` prefixes from `Name` (converts `**` to `*`, removes regional suffixes like `(LD)`, etc.). For territorial-protection detection and the canonical `company_name`, we MUST use the Name from the raw `customers` table. Use `five_minute_customers` for EVERYTHING ELSE (geocoding, addresses, phone, etc.).**
+
+Join to `customer_sources` for source name AND to raw `customers` for the authoritative Name:
 ```sql
 SELECT
-  fmc.*,
+  fmc.CustomerID,
+  fmc.Code,
+  COALESCE(c.Name, fmc.Name) AS Name,   -- authoritative name (with ** and * prefixes preserved)
+  fmc.Telephone, fmc.Mobile, fmc.Email, fmc.Website,
+  fmc.Street_Address, fmc.Street_Address_2_Town, fmc.Town, fmc.Town_County,
+  fmc.CountryName, fmc.Postcode,
+  fmc.Notes, fmc.Discount, fmc.PaymentTerms, fmc.Created,
+  fmc.VATNumber, fmc.EORI, fmc.Member_No, fmc.PO_Number,
+  fmc.DeliveryAddress1, fmc.DeliveryAddress2, fmc.DeliveryAddress3, fmc.DeliveryAddress4,
+  fmc.DeliveryPostcode, fmc.Store_Type,
+  fmc.lat, fmc.lng, fmc.formatted_address,
+  fmc.last_updated,
   cs.Name AS source_name
 FROM five_minute_customers fmc
+LEFT JOIN customers c ON c.CustomerID = fmc.CustomerID
 LEFT JOIN customer_sources cs ON cs.ID = fmc.Source
 WHERE <delta clause as above>
 ORDER BY fmc.Code;
