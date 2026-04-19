@@ -162,6 +162,116 @@ UPDATE sync_state SET value_ts = now(), updated_at = now() WHERE key = 'kashflow
 
 If this was a full sweep, also update `'kashflow_customer_last_full_sweep'`.
 
+## Step 6.5 — Refresh proximity conflicts (5 Min Walk cache)
+
+After the main sync is complete and `sync_state` is updated, refresh the cached proximity data in `customers.conflict_kf_code` and `customers.conflict_info`. This keeps the CRM's "5 Min Conflict" column in sync with the latest lat/lng data.
+
+Run these three SQL statements against Supabase in order. The full refresh typically completes in under 5 seconds.
+
+**Step 6.5a — Clear existing conflict cache:**
+
+```sql
+UPDATE customers 
+SET conflict_kf_code = NULL, 
+    conflict_info = NULL 
+WHERE conflict_kf_code IS NOT NULL;
+```
+
+**Step 6.5b — Populate threat flag for territorial (`**`) customers:**
+
+```sql
+WITH territorial AS (
+  SELECT id, lat, lng
+  FROM customers
+  WHERE territorial_protection = true AND lat IS NOT NULL
+),
+candidates AS (
+  SELECT id, kf_code, company_name, lat, lng, status, last_order_date
+  FROM customers
+  WHERE territorial_protection = false AND hidden = false AND lat IS NOT NULL
+),
+pairs AS (
+  SELECT 
+    t.id AS terr_id,
+    c.kf_code AS nearby_code,
+    c.company_name AS nearby_name,
+    c.last_order_date,
+    c.status,
+    ROUND(111320 * SQRT(
+      POWER(t.lat - c.lat, 2) + 
+      POWER((t.lng - c.lng) * COS(RADIANS((t.lat + c.lat) / 2)), 2)
+    ))::int AS dist_m,
+    ROW_NUMBER() OVER (
+      PARTITION BY t.id 
+      ORDER BY (
+        CASE c.status WHEN 'active' THEN 0 WHEN 'dormant' THEN 1 ELSE 2 END,
+        POWER(t.lat - c.lat, 2) + POWER((t.lng - c.lng) * COS(RADIANS((t.lat + c.lat) / 2)), 2)
+      )
+    ) AS rn
+  FROM territorial t CROSS JOIN candidates c
+  WHERE c.lat BETWEEN t.lat - 0.005 AND t.lat + 0.005
+    AND c.lng BETWEEN t.lng - 0.008 AND t.lng + 0.008
+)
+UPDATE customers cu
+SET conflict_kf_code = p.nearby_code,
+    conflict_info = jsonb_build_object(
+      'company_name', p.nearby_name,
+      'last_order_date', p.last_order_date,
+      'status', p.status,
+      'distance_m', p.dist_m,
+      'type', 'threat'
+    )
+FROM pairs p
+WHERE cu.id = p.terr_id AND p.rn = 1 AND p.dist_m <= 417;
+```
+
+**Step 6.5c — Populate zone flag for non-territorial customers:**
+
+```sql
+WITH territorial AS (
+  SELECT id, kf_code, company_name, lat, lng, last_order_date
+  FROM customers
+  WHERE territorial_protection = true AND lat IS NOT NULL
+),
+candidates AS (
+  SELECT id, lat, lng
+  FROM customers
+  WHERE territorial_protection = false AND hidden = false AND lat IS NOT NULL
+),
+pairs AS (
+  SELECT 
+    c.id AS cand_id,
+    t.kf_code AS terr_code,
+    t.company_name AS terr_name,
+    t.last_order_date,
+    ROUND(111320 * SQRT(
+      POWER(t.lat - c.lat, 2) + 
+      POWER((t.lng - c.lng) * COS(RADIANS((t.lat + c.lat) / 2)), 2)
+    ))::int AS dist_m,
+    ROW_NUMBER() OVER (
+      PARTITION BY c.id 
+      ORDER BY POWER(t.lat - c.lat, 2) + POWER((t.lng - c.lng) * COS(RADIANS((t.lat + c.lat) / 2)), 2)
+    ) AS rn
+  FROM territorial t CROSS JOIN candidates c
+  WHERE c.lat BETWEEN t.lat - 0.005 AND t.lat + 0.005
+    AND c.lng BETWEEN t.lng - 0.008 AND t.lng + 0.008
+)
+UPDATE customers cu
+SET conflict_kf_code = p.terr_code,
+    conflict_info = jsonb_build_object(
+      'company_name', p.terr_name,
+      'last_order_date', p.last_order_date,
+      'distance_m', p.dist_m,
+      'type', 'zone'
+    )
+FROM pairs p
+WHERE cu.id = p.cand_id AND p.rn = 1 AND p.dist_m <= 417;
+```
+
+Include a count of proximity conflicts refreshed in the narrative summary (Step 7). Example wording: "Proximity cache refreshed: 62 territorial flagged with threats, 253 non-territorial flagged with zones (315 total)."
+
+If any of the three statements error, log to `customer_sync_log.errors` but do NOT fail the overall run. The main customer sync already succeeded — proximity is a secondary derived dataset.
+
 ## Step 7 — Final narrative summary
 
 Return a concise narrative:
