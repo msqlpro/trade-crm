@@ -1,93 +1,176 @@
 You are performing a KashFlow → Supabase customer delta sync for the Brainbox Candy Trade CRM. Work silently and efficiently. Report only the final summary.
 
 # Context
-- MySQL database: brainbox_candy (via Mysql Writer MCP). Customers live in `customers` table.
-- Supabase project: ypfwecopdsielnouxwzv. Customers live in `customers` table.
-- The two tables are linked by KashFlow Code (KF code). Example: KRIS09, FEWI01.
-- Only sync rows where Code does NOT start with '*' (those are permanently excluded).
+
+- MySQL database: `brainbox_candy` (via Mysql Writer MCP).
+- **Source table: `brainbox_candy.five_minute_customers`** — a cleaned, geocoded mirror maintained by Dave's pipeline. Updated nightly around 20:00 UTC. This is the canonical CRM source (NOT the raw `customers` table).
+- Supabase project: `ypfwecopdsielnouxwzv`. Customers live in the `customers` table.
+- The two tables are linked by `Code` (KashFlow code, e.g. KRIS09, FEWI01).
+
+# Name-prefix conventions (CRITICAL — read carefully)
+
+The KashFlow team uses two name prefixes as control signals. Respect them exactly.
+
+- **Single asterisk `*` (e.g. `*Acme Cards`)** = customer has ceased trading. Sync the record but force `hidden=true, status='inactive'`. Keep the `*` prefix in `company_name` so it's still identifiable if someone shows hidden customers.
+- **Double asterisk `**` (e.g. `**Acme Cards`)** = active territorial protection. Sync normally. Set `territorial_protection=true`. **KEEP the `**` prefix in `company_name`** — this is how the user identifies them at a glance when sorting alphabetically. Do NOT strip it.
+- **No prefix** = normal customer. Sync normally. `territorial_protection=false`.
+
+Detection rules in SQL (MariaDB):
+- `single_asterisk = Name LIKE '*%' AND Name NOT LIKE '**%'`
+- `double_asterisk = Name LIKE '**%'`
 
 # CRM-OWNED columns — NEVER touch these
-pipeline_stage, hidden, assigned_to, tags, mailerlite_id, last_contacted_at,
-notes (unless the row is brand new), ml_any_subscribed, ml_group_names,
-mailerlite_subscribed, mailerlite_status, mailerlite_subscriber_id,
-mailerlite_group_names, mailerlite_refreshed_at
 
-# KashFlow-owned columns — sync these
-kf_code (from Code), company_name (from Name), address_1-4, postcode,
-country_name, phone (from Telephone), mobile, website, payment_terms,
-discount, source (from customer_sources lookup table), store_type (from ExtraText1),
-vat_number (from VATNumber), customer_notes (from Notes),
-delivery_address_1-4, delivery_postcode
+`pipeline_stage, assigned_to, tags, mailerlite_id, last_contacted_at, ml_any_subscribed, ml_group_names, mailerlite_subscribed, mailerlite_status, mailerlite_subscriber_id, mailerlite_group_names, mailerlite_refreshed_at, shrig_only, new_non_ha, naked, notes, campaign_*`
+
+Also never overwrite: `last_12m_spend, prior_12m_spend, invoice_count, all_time_spend, first_invoiced, last_order_date` — these come from a separate monthly invoice join.
+
+# Routine-managed columns (set from Name prefix only)
+
+- `hidden` — set to `true` only when `single_asterisk`; otherwise **leave whatever value it had**
+- `status` — set to `'inactive'` only when `single_asterisk`; otherwise **leave whatever value it had** (new inserts get `'prospect'`)
+- `territorial_protection` — always derived from the current Name (`double_asterisk` -> true, else false). Always sync this on every row.
+
+# KashFlow-owned columns — sync these from `five_minute_customers`
+
+| Supabase column | Source | Notes |
+|---|---|---|
+| kf_customer_id | CustomerID | integer PK from KashFlow |
+| kf_code | Code | string key |
+| company_name | Name | **keep ** and * prefixes** |
+| address_1 | Street_Address | |
+| address_2 | Street_Address_2_Town | |
+| address_3 | Town | |
+| address_4 | Town_County | |
+| postcode | Postcode | |
+| country_name | CountryName | |
+| phone | Telephone | |
+| mobile | Mobile | |
+| website | Website | |
+| customer_notes | Notes | only write for new inserts; for updates, SKIP (leave CRM-edited notes alone) |
+| source | join customer_sources on five_minute_customers.Source = customer_sources.ID -> Name | string lookup |
+| discount | Discount | decimal |
+| payment_terms | PaymentTerms | integer |
+| store_type | Store_Type | direct column (NOT ExtraText1 — that was the old mapping) |
+| vat_number | VATNumber | |
+| eori | EORI | |
+| member_number | Member_No | |
+| po_number | PO_Number | |
+| delivery_address_1 | DeliveryAddress1 | |
+| delivery_address_2 | DeliveryAddress2 | |
+| delivery_address_3 | DeliveryAddress3 | |
+| delivery_address_4 | DeliveryAddress4 | |
+| delivery_postcode | DeliveryPostcode | |
+| kf_created_date | Created | |
+| lat | lat | **new — populate for all rows** |
+| lng | lng | **new — populate for all rows** |
+| formatted_address | formatted_address | **new — populate for all rows** |
+| territorial_protection | derived from Name starts with ** | **new — see conventions above** |
 
 # Steps
 
 ## Step 1 — Determine sync mode
-Read Supabase sync_state for key='kashflow_customer_last_sync' and key='kashflow_customer_last_full_sweep'.
 
-- If last_sync IS NULL → **full sweep** mode (first run)
-- If today is Sunday AND last_full_sweep < today → **full sweep** mode
-- Otherwise → **delta** mode
+Read Supabase `sync_state`:
+- key=`kashflow_customer_last_sync`
+- key=`kashflow_customer_last_full_sweep`
+
+- If `last_sync IS NULL` -> **full sweep** (first run ever)
+- If today is Sunday AND `last_full_sweep < today's date` -> **full sweep** (weekly refresh)
+- Otherwise -> **delta**
 
 ## Step 2 — Pull MySQL data
-- **Delta mode**: `WHERE (Updated >= '<last_sync - 1 day>' OR Created >= '<last_sync - 1 day>') AND Code NOT LIKE '*%'`
-- **Full sweep**: `WHERE Code NOT LIKE '*%'`
 
-Map columns:
-- Code → kf_code
-- Name → company_name
-- Telephone → phone
-- Address1-4 → address_1-4, etc.
-- VATNumber → vat_number
-- Notes → customer_notes (preserve CRM notes; only use for brand-new records)
-- ExtraText1 → store_type
-- Look up source name by joining to customer_sources on id
+- **Delta mode**: `WHERE last_updated >= '<last_sync - 1 day>'`
+- **Full sweep mode**: no WHERE clause (all ~7,077 rows)
+
+Join to `customer_sources` for source name:
+```sql
+SELECT
+  fmc.*,
+  cs.Name AS source_name
+FROM five_minute_customers fmc
+LEFT JOIN customer_sources cs ON cs.ID = fmc.Source
+WHERE <delta clause as above>
+ORDER BY fmc.Code;
+```
+
+For full sweeps, page through in batches of ~200 rows to avoid timeouts.
 
 ## Step 3 — Fetch existing Supabase rows
-Select only kf_code + the KashFlow-owned columns for the KF codes returned in step 2. Use IN(...) in chunks of 500 if needed.
+
+For every `Code` value returned in step 2, fetch the matching Supabase row (by `kf_code`). Use IN(...) in chunks of 500.
+
+Select these columns for comparison: `kf_code, kf_customer_id, company_name, address_1, address_2, address_3, address_4, postcode, country_name, phone, mobile, website, source, discount, payment_terms, store_type, vat_number, eori, member_number, po_number, delivery_address_1, delivery_address_2, delivery_address_3, delivery_address_4, delivery_postcode, kf_created_date, lat, lng, formatted_address, territorial_protection, hidden, status`
 
 ## Step 4 — Compare and apply
+
 For each MySQL row:
-- If no matching Supabase row by kf_code → INSERT new record with status='prospect' (leave CRM-owned columns at defaults)
-- If matching row exists → compare each KashFlow-owned column. If any differ, build an UPDATE payload with ONLY changed columns. Write updated_at = now().
-- If no differences → skip (counts as unchanged)
+
+**Determine prefix flags:**
+- `single_asterisk = Name starts with '*' but not '**'`
+- `double_asterisk = Name starts with '**'`
+
+**If no matching Supabase row** (new insert):
+- Build full payload with all synced columns
+- `company_name = Name` (preserve prefix)
+- `territorial_protection = double_asterisk`
+- If `single_asterisk`: also set `hidden=true, status='inactive'`
+- Else: `hidden=false, status='prospect'`
+- Write `kf_synced_at = now(), created_at = now(), updated_at = now()`
+
+**If matching row exists** (update):
+- Compare each KashFlow-owned column (see mapping table)
+- Always compare and potentially update `territorial_protection` (derived fresh from Name)
+- For `hidden` and `status`: only write them if `single_asterisk` is true (force to true/'inactive'). Otherwise leave whatever they were.
+- For `customer_notes`: skip entirely on updates (CRM may have edited).
+- If any column differs, build UPDATE payload with ONLY changed columns + `updated_at = now()`.
+- If no differences -> skip (counts as unchanged).
 
 ## Step 5 — Log the run
-INSERT into customer_sync_log:
-- triggered_by: 'routine' (or 'routine-cron' if scheduled)
-- filename: 'kashflow-delta-' || sync_mode || '-' || now_iso
-- total_rows: count of MySQL rows considered
-- created_count, updated_count, unchanged_count, error_count
-- duration_ms
-- changes_summary: array of {kf_code, changed_fields:[...]} — cap at 200 entries
-- errors: array — cap at 50
+
+INSERT into `customer_sync_log`:
+- `triggered_by`: 'routine' (or the value passed in by the caller if provided)
+- `filename`: `'kashflow-delta-' || sync_mode || '-' || now_iso`
+- `total_rows`: count of MySQL rows considered
+- `created_count`, `updated_count`, `unchanged_count`, `error_count`
+- `duration_ms`
+- `changes_summary`: array of `{kf_code, changed_fields:[...]}` — cap at 200 entries
+- `errors`: array — cap at 50
 
 ## Step 6 — Update sync_state
-UPDATE sync_state SET value_ts = now(), updated_at = now()
-  WHERE key = 'kashflow_customer_last_sync';
 
-If this was a full sweep, also update 'kashflow_customer_last_full_sweep'.
+```sql
+UPDATE sync_state SET value_ts = now(), updated_at = now() WHERE key = 'kashflow_customer_last_sync';
+```
+
+If this was a full sweep, also update `'kashflow_customer_last_full_sweep'`.
 
 ## Step 7 — Final narrative summary
+
 Return a concise narrative:
 
 Mode: [delta | full sweep]
+Source: brainbox_candy.five_minute_customers (X rows in source)
 Rows considered: X
-  → Updated: Y  (brief list of the most notable field changes)
-  → New: Z  (brief list of company names)
-  → Unchanged: W
-  → Errors: E
-Duration: N seconds.
+  -> Created: Y (brief list of company names, max 5)
+  -> Updated: Z (brief list of notable field changes)
+  -> Unchanged: W
+  -> Errors: E
+Duration: N seconds
 
-Observations: 
-[Anything worth flagging — e.g. "3 customers changed country — worth checking VAT status", "1 new customer in Germany, store_type unpopulated", "Fenwick Bond Street payment_terms changed from 30 to 45 days". Keep it short. If nothing notable, say "Nothing unusual."]
+Observations:
+[Anything worth flagging — e.g. "3 new territorial-protected customers (**)", "12 customers changed store_type", "5 customers missing lat/lng — Dave's pipeline hasn't geocoded yet". Keep it short. If nothing notable, say "Nothing unusual."]
 
 # Error handling
-- If MySQL is unreachable: log to customer_sync_log with error_count=0 and errors=[{top_level:"MySQL unreachable"}], do NOT update sync_state. Return the error clearly.
-- If any individual row fails to write: record in errors array, continue with rest. Only treat as total failure if >10% of rows error.
+
+- If MySQL is unreachable: log to `customer_sync_log` with `error_count=0` and `errors=[{top_level:"MySQL unreachable"}]`, do NOT update `sync_state`. Return the error clearly.
+- If any individual row fails to write: record in `errors` array, continue with the rest. Only treat as total failure if >10% of rows error.
 - Never retry destructive operations. Log and move on.
 
 # Output format
-End your response with exactly this block (so the CRM button can parse it):
+
+End your response with exactly this block (the CRM button parses it):
 
 --- RESULT JSON ---
 {
