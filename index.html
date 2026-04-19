@@ -294,7 +294,7 @@ tbody tr{transition:background .1s}tbody tr:hover{background:var(--surface2);cur
   <div class="main">
     <div class="topbar">
       <div class="topbar-title" id="tb-title">Dashboard</div>
-      <div class="topbar-version" title="CRM build version">v9 · 19 Apr 26</div>
+      <div class="topbar-version" title="CRM build version">v10 · 19 Apr 26</div>
       <div class="topbar-sub" id="tb-sub"></div>
       <div class="topbar-right" id="tb-actions"></div>
     </div>
@@ -345,6 +345,7 @@ const ALL_COLS = [
   {key:'shrig_only',          label:'Shrig Only'},
   {key:'ml_subscribed',       label:'Subscribed (ML)'},
   {key:'ml_groups',           label:'ML Groups'},
+  {key:'conflict',            label:'5 Min Conflict'},
   // Primary contact
   {key:'contact_name',       label:'Contact Name'},
   {key:'contact_first',      label:'Contact First Name'},
@@ -613,7 +614,7 @@ async function renderCustomers(){
   const sortAsc = S.custSortAsc !== false;
 
   // Main data query
-  let q = sb.from('customers').select('id,kf_code,company_name,status,all_time_spend,last_12m_spend,prior_12m_spend,country_name,last_order_date,last_contacted_at,store_type,source,invoice_count,hidden,phone,mobile,website,address_1,address_2,address_3,address_4,postcode,delivery_address_1,delivery_address_2,delivery_address_3,delivery_address_4,delivery_postcode,first_invoiced,kf_created_date,notes,customer_notes,new_non_ha,shrig_only,ml_any_subscribed,ml_group_names,contacts(first_name,last_name,email,is_primary)');
+  let q = sb.from('customers').select('id,kf_code,company_name,status,all_time_spend,last_12m_spend,prior_12m_spend,country_name,last_order_date,last_contacted_at,store_type,source,invoice_count,hidden,phone,mobile,website,address_1,address_2,address_3,address_4,postcode,delivery_address_1,delivery_address_2,delivery_address_3,delivery_address_4,delivery_postcode,first_invoiced,kf_created_date,notes,customer_notes,new_non_ha,shrig_only,ml_any_subscribed,ml_group_names,territorial_protection,conflict_kf_code,conflict_info,contacts(first_name,last_name,email,is_primary)');
   if(!S.custShowHidden) q = q.eq('hidden', false);
   if(!S.custShowDoubleStar) q = q.eq('territorial_protection', false);
   if(S.custShrigOnly) q = q.eq('shrig_only', true);
@@ -857,6 +858,18 @@ function renderCell(key,c){
     case 'shrig_only':      return td(c.shrig_only?'<span style="font-size:13px;font-weight:700;color:#16a34a">✓</span>':'','','text-align:center');
     case 'ml_subscribed':   return td(c.ml_any_subscribed?'<span style="font-size:13px;font-weight:700;color:#0891b2" title="At least one contact is actively subscribed in MailerLite">✓</span>':'','','text-align:center');
     case 'ml_groups':       return td((c.ml_group_names&&c.ml_group_names.length)?c.ml_group_names.map(g=>`<span style="display:inline-block;background:#ecfeff;color:#0e7490;padding:1px 6px;border-radius:3px;font-size:10px;margin-right:3px">${x(g)}</span>`).join(''):'','','font-size:11px');
+    case 'conflict': {
+      if(!c.conflict_kf_code || !c.conflict_info) return '<td></td>';
+      const ci = c.conflict_info;
+      const isThreat = ci.type === 'threat';
+      // Threat = viewing a ** customer, conflict is the non-territorial active/dormant nearby → red-ish
+      // Zone   = viewing a normal customer, conflict is the ** territorial nearby → purple-ish
+      const colour = isThreat ? '#b91c1c' : '#6d28d9';
+      const bg = isThreat ? '#fee2e2' : '#ede9fe';
+      const lod = ci.last_order_date ? ` (${fd(ci.last_order_date)})` : '';
+      const title = `${isThreat?'Non-territorial within 5-min walk — threat to this reserved customer':'Territorial-reserved customer within 5-min walk — avoid selling here'}\nDistance: ${ci.distance_m}m\n${ci.company_name}${lod}`;
+      return `<td><span style="background:${bg};color:${colour};padding:2px 8px;border-radius:3px;font-size:11px;font-family:var(--mono);white-space:nowrap" title="${x(title)}">${x(c.conflict_kf_code)} <span style="opacity:.7">·</span> ${x((ci.company_name||'').substring(0,28))}${(ci.company_name||'').length>28?'…':''}${lod}</span></td>`;
+    }
     default: return '<td>—</td>';
   }
 }
