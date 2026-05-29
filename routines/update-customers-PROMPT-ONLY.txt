@@ -25,7 +25,7 @@ Detection rules in SQL (MariaDB), using the authoritative raw `customers.Name`:
 
 `pipeline_stage, assigned_to, tags, mailerlite_id, last_contacted_at, ml_any_subscribed, ml_group_names, mailerlite_subscribed, mailerlite_status, mailerlite_subscriber_id, mailerlite_group_names, mailerlite_refreshed_at, shrig_only, new_non_ha, naked, notes, campaign_*`
 
-Also never overwrite: `last_12m_spend, prior_12m_spend, invoice_count, all_time_spend, first_invoiced, last_order_date` — these come from a separate monthly invoice join.
+Do NOT touch the order/spend columns (`last_12m_spend, prior_12m_spend, invoice_count, all_time_spend, first_invoiced, last_order_date`) during the main customer sync (Steps 1–4) — they are NOT in `five_minute_customers`. They are refreshed separately and authoritatively in **Step 6.6** below, computed live from the `invoice` table.
 
 # Routine-managed columns (set from Name prefix only)
 
@@ -271,6 +271,53 @@ WHERE cu.id = p.cand_id AND p.rn = 1 AND p.dist_m <= 417;
 Include a count of proximity conflicts refreshed in the narrative summary (Step 7). Example wording: "Proximity cache refreshed: 62 territorial flagged with threats, 253 non-territorial flagged with zones (315 total)."
 
 If any of the three statements error, log to `customer_sync_log.errors` but do NOT fail the overall run. The main customer sync already succeeded — proximity is a secondary derived dataset.
+
+## Step 6.6 — Refresh order / spend figures from invoices
+
+Recompute the six order/spend fields live from `brainbox_candy.invoice` (KashFlow sales invoices) and write them to Supabase `customers`. Run this every time (delta or full sweep) — the rolling 12-month windows move daily, so all invoiced customers need refreshing, not just changed ones.
+
+**Definitions (agreed):** spend is **ex-VAT** (`NetAmount`); quotes are excluded (`quote = 0`); credit notes net off naturally (they are negative `NetAmount`); rolling windows are anchored to the run date (`CURDATE()`); future-dated invoices are excluded from `last_order_date` but otherwise included in totals.
+
+**Step 6.6a — Pull the aggregate from MySQL.** Join `invoice` to the raw `customers` table to resolve the KashFlow `Code` (this maps ~4,166 of 4,170 invoiced customers; `five_minute_customers` misses ~447 so do NOT use it here). Page through in batches of ~1,000 rows ordered by `kf_code` if needed.
+
+```sql
+SELECT c.Code AS kf_code,
+  COUNT(*) AS invoice_count,
+  ROUND(SUM(i.NetAmount),2) AS all_time_spend,
+  MIN(i.InvoiceDate) AS first_invoiced,
+  MAX(CASE WHEN i.InvoiceDate <= CURDATE() THEN i.InvoiceDate END) AS last_order_date,
+  ROUND(SUM(CASE WHEN i.InvoiceDate >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH) AND i.InvoiceDate <= CURDATE() THEN i.NetAmount ELSE 0 END),2) AS last_12m_spend,
+  ROUND(SUM(CASE WHEN i.InvoiceDate >= DATE_SUB(CURDATE(), INTERVAL 24 MONTH) AND i.InvoiceDate <  DATE_SUB(CURDATE(), INTERVAL 12 MONTH) THEN i.NetAmount ELSE 0 END),2) AS prior_12m_spend
+FROM invoice i
+JOIN customers c ON c.CustomerID = i.CustomerID
+WHERE i.quote = 0 AND c.Code IS NOT NULL AND c.Code <> ''
+GROUP BY c.Code
+ORDER BY c.Code;
+```
+
+**Step 6.6b — Write to Supabase.** For each batch, update `customers` by `kf_code` using a single VALUES join (batches of ~500). Only the six fields plus `updated_at` are written — never touch any other column here.
+
+```sql
+UPDATE customers AS c SET
+  invoice_count   = v.invoice_count,
+  all_time_spend  = v.all_time_spend,
+  first_invoiced  = v.first_invoiced,
+  last_order_date = v.last_order_date,
+  last_12m_spend  = v.last_12m_spend,
+  prior_12m_spend = v.prior_12m_spend,
+  updated_at      = now()
+FROM (VALUES
+  ('BRIC01', 16, 1349.54, DATE '2013-01-16', DATE '2026-04-21', 408.84, 0.00)
+  -- ...one row per customer in this batch...
+) AS v(kf_code, invoice_count, all_time_spend, first_invoiced, last_order_date, last_12m_spend, prior_12m_spend)
+WHERE c.kf_code = v.kf_code;
+```
+
+Notes:
+- Customers with **no** invoices are simply not in the aggregate; leave their existing values untouched (do not zero them).
+- This step refreshes figures only; it does NOT recompute `status` (active/dormant). If a spend-based status recalc is wanted, treat it as a separate task.
+- Count how many customer rows were updated and include it in the Step 7 narrative, e.g. "Order figures refreshed for 4,166 customers from live invoices."
+- If MySQL is unreachable for this step specifically, log to `customer_sync_log.errors` but do NOT fail the overall run — the customer-detail sync already succeeded.
 
 ## Step 7 — Final narrative summary
 

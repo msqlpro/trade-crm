@@ -1,6 +1,8 @@
 # Routine: Update Customers (KashFlow → Supabase Delta Sync)
 
-**Last revised: 19 April 2026** — switched source from `customers` to `five_minute_customers` (cleaner, geocoded), updated asterisk handling to preserve prefix, added lat/lng/formatted_address/territorial_protection.
+**Last revised: 29 May 2026** — added Step 6.6: nightly refresh of order/spend figures (last_order_date, first_invoiced, invoice_count, all_time_spend, last_12m_spend, prior_12m_spend) computed live from the `invoice` table (ex-VAT Net, quotes excluded, rolling 12m windows). Previously these were a stale one-off April upload.
+
+**Previously revised: 19 April 2026** — switched source from `customers` to `five_minute_customers` (cleaner, geocoded), updated asterisk handling to preserve prefix, added lat/lng/formatted_address/territorial_protection.
 
 ## Setup instructions
 
