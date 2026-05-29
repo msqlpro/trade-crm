@@ -278,7 +278,9 @@ Recompute the six order/spend fields live from `brainbox_candy.invoice` (KashFlo
 
 **Definitions (agreed):** spend is **ex-VAT** (`NetAmount`); quotes are excluded (`quote = 0`); credit notes net off naturally (they are negative `NetAmount`); rolling windows are anchored to the run date (`CURDATE()`); future-dated invoices are excluded from `last_order_date` but otherwise included in totals.
 
-**Step 6.6a — Pull the aggregate from MySQL.** Join `invoice` to the raw `customers` table to resolve the KashFlow `Code` (this maps ~4,166 of 4,170 invoiced customers; `five_minute_customers` misses ~447 so do NOT use it here). Page through in batches of ~1,000 rows ordered by `kf_code` if needed.
+**IMPORTANT — work entirely through MCP SQL calls and in memory. Do NOT write query results to disk, do NOT create or edit any files, and never touch anything under `~/.claude` or other system paths. If a tool offers to save a large result to a file, decline — instead page the data in small batches as below.**
+
+**Step 6.6a — Pull the aggregate from MySQL in pages.** Join `invoice` to the raw `customers` table to resolve the KashFlow `Code` (this maps ~4,166 of 4,170 invoiced customers; `five_minute_customers` misses ~447 so do NOT use it here). Fetch in pages of **500 rows** ordered by `kf_code` using `LIMIT 500 OFFSET n`, and process + write each page (Step 6.6b) before fetching the next — so no single result set is ever large. The aggregate query (add `LIMIT/OFFSET` per page):
 
 ```sql
 SELECT c.Code AS kf_code,
