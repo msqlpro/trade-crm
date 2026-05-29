@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Brainbox CRM</title><!-- v20260410174843 -->
+<title>Brainbox CRM</title><!-- v20260529105329 -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet"/>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -296,7 +296,7 @@ tbody tr{transition:background .1s}tbody tr:hover{background:var(--surface2);cur
   <div class="main">
     <div class="topbar">
       <div class="topbar-title" id="tb-title">Dashboard</div>
-      <div class="topbar-version" title="CRM build version">v12 · 29 May 26</div>
+      <div class="topbar-version" title="CRM build version">v13 · 29 May 26</div>
       <div class="topbar-sub" id="tb-sub"></div>
       <div class="topbar-right" id="tb-actions"></div>
     </div>
@@ -322,6 +322,10 @@ const SURL = 'https://ypfwecopdsielnouxwzv.supabase.co';
 const SKEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlwZndlY29wZHNpZWxub3V4d3p2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3NDMyNjgsImV4cCI6MjA5MTMxOTI2OH0.ll4Epk7es-knrgbG6j0e5xo59OEdMFwpxeWmMs9RfpU';
 const sb = supabase.createClient(SURL, SKEY);
 const PG = 250;
+// Columns derived from joins/arrays that can't be ordered server-side — rendered as non-clickable headers
+const NON_SORTABLE_COLS = new Set(['contact_name','contact_first','contact_last','contact_email','name_2','email_2','name_3','email_3','name_4','email_4']);
+// Display key -> real orderable customer column
+const SORT_COL_MAP = {ml_subscribed:'ml_any_subscribed', ml_groups:'ml_group_names', conflict:'conflict_kf_code'};
 const PIPELINE_STAGES = ['Prospect','Contacted','Sampling','Negotiating','Won','Lost'];
 const STAGE_COLOURS = {Prospect:'#1d4ed8',Contacted:'#7c3aed',Sampling:'#0f766e',Negotiating:'#b45309',Won:'#15803d',Lost:'#dc2626'};
 
@@ -616,34 +620,64 @@ async function renderCustomers(){
   const sortCol = S.custSort || 'company_name';
   const sortAsc = S.custSortAsc !== false;
 
-  // Main data query
-  let q = sb.from('customers').select('id,kf_code,company_name,status,all_time_spend,last_12m_spend,prior_12m_spend,country_name,last_order_date,last_contacted_at,store_type,source,invoice_count,hidden,phone,mobile,website,address_1,address_2,address_3,address_4,postcode,delivery_address_1,delivery_address_2,delivery_address_3,delivery_address_4,delivery_postcode,first_invoiced,kf_created_date,notes,customer_notes,new_non_ha,shrig_only,ml_any_subscribed,ml_group_names,territorial_protection,conflict_kf_code,conflict_info,contacts(first_name,last_name,email,is_primary)');
-  if(!S.custShowHidden) q = q.eq('hidden', false);
-  if(!S.custShowDoubleStar) q = q.eq('territorial_protection', false);
-  if(S.custShrigOnly) q = q.eq('shrig_only', true);
-  if(S.custSearch) q = q.ilike('company_name', '%'+S.custSearch+'%');
-  if(S.custStatus === 'dormant'){
-    const cutoff = new Date(Date.now()-365*864e5).toISOString().split('T')[0];
-    q = q.or('status.eq.dormant,last_order_date.lt.'+cutoff);
-  } else if(S.custStatus){
-    q = q.eq('status', S.custStatus);
-  }
-  // Engagement filter - customers NOT contacted in X days
-  if(S.custEngagement){
-    const days = parseInt(S.custEngagement);
-    const cutoff = new Date(Date.now()-days*864e5).toISOString();
-    q = q.or('last_contacted_at.is.null,last_contacted_at.lt.'+cutoff);
-  }
-  // Push NULLs to bottom for numeric sorts
-  const numericCols = ['all_time_spend','last_12m_spend','prior_12m_spend','invoice_count','last_order_date','first_invoiced','kf_created_date'];
-  if(numericCols.includes(sortCol)){
-    q = q.order(sortCol, {ascending: sortAsc, nullsFirst: false});
-  } else {
-    q = q.order(sortCol, {ascending: sortAsc});
-  }
-  q = q.range(S.custPage*PG, (S.custPage+1)*PG-1);
+  // Shared SELECT + filters
+  const SEL = 'id,kf_code,company_name,status,all_time_spend,last_12m_spend,prior_12m_spend,country_name,last_order_date,last_contacted_at,store_type,source,invoice_count,hidden,phone,mobile,website,address_1,address_2,address_3,address_4,postcode,delivery_address_1,delivery_address_2,delivery_address_3,delivery_address_4,delivery_postcode,first_invoiced,kf_created_date,notes,customer_notes,new_non_ha,shrig_only,ml_any_subscribed,ml_group_names,territorial_protection,conflict_kf_code,conflict_info,contacts(first_name,last_name,email,is_primary)';
+  const applyCustFilters = (qq) => {
+    if(!S.custShowHidden) qq = qq.eq('hidden', false);
+    if(!S.custShowDoubleStar) qq = qq.eq('territorial_protection', false);
+    if(S.custShrigOnly) qq = qq.eq('shrig_only', true);
+    if(S.custSearch) qq = qq.ilike('company_name', '%'+S.custSearch+'%');
+    if(S.custStatus === 'dormant'){
+      const cutoff = new Date(Date.now()-365*864e5).toISOString().split('T')[0];
+      qq = qq.or('status.eq.dormant,last_order_date.lt.'+cutoff);
+    } else if(S.custStatus){
+      qq = qq.eq('status', S.custStatus);
+    }
+    if(S.custEngagement){
+      const days = parseInt(S.custEngagement);
+      const cutoff = new Date(Date.now()-days*864e5).toISOString();
+      qq = qq.or('last_contacted_at.is.null,last_contacted_at.lt.'+cutoff);
+    }
+    return qq;
+  };
 
-  const {data, error} = await q;
+  let data=null, error=null;
+  if(sortCol.startsWith('camp:')){
+    // Activity column sort — order by membership server-side via RPC, then load the page's rows by id
+    const campId = sortCol.slice(5);
+    const rpc = await sb.rpc('customers_campaign_sort', {
+      p_campaign: campId,
+      p_members_first: !sortAsc,
+      p_limit: PG,
+      p_offset: S.custPage*PG,
+      p_show_hidden: !!S.custShowHidden,
+      p_show_double: !!S.custShowDoubleStar,
+      p_shrig_only: !!S.custShrigOnly,
+      p_search: S.custSearch||'',
+      p_status: S.custStatus||'',
+      p_engagement: S.custEngagement?parseInt(S.custEngagement):0
+    });
+    if(rpc.error){ error=rpc.error; }
+    else{
+      const pageIds=(rpc.data||[]).map(r=>r.id);
+      if(pageIds.length){
+        const res = await applyCustFilters(sb.from('customers').select(SEL)).in('id', pageIds);
+        if(res.error) error=res.error;
+        else{ const byId={}; (res.data||[]).forEach(r=>byId[r.id]=r); data=pageIds.map(id=>byId[id]).filter(Boolean); }
+      } else { data=[]; }
+    }
+  } else {
+    const orderCol = SORT_COL_MAP[sortCol] || sortCol;
+    let q = applyCustFilters(sb.from('customers').select(SEL));
+    const numericCols = ['all_time_spend','last_12m_spend','prior_12m_spend','invoice_count','last_order_date','first_invoiced','kf_created_date'];
+    if(numericCols.includes(orderCol)){
+      q = q.order(orderCol, {ascending: sortAsc, nullsFirst: false});
+    } else {
+      q = q.order(orderCol, {ascending: sortAsc});
+    }
+    q = q.range(S.custPage*PG, (S.custPage+1)*PG-1);
+    const res = await q; data=res.data; error=res.error;
+  }
   if(error){
     setPage('<div style="padding:32px;color:var(--red)"><strong>Error:</strong> '+error.message+'</div>');
     return;
@@ -664,6 +698,7 @@ async function renderCustomers(){
   const pages = Math.ceil((count||0)/PG);
 
   const th = (col, label, align) => {
+    if(NON_SORTABLE_COLS.has(col)) return '<th style="white-space:nowrap">'+label+'</th>';
     const active = sortCol===col, asc = active&&sortAsc;
     const arrow = active ? (asc ? ' ↑' : ' ↓') : ' <span style="opacity:.25">↕</span>';
     return '<th style="cursor:pointer;user-select:none;white-space:nowrap;" onclick="custSort(\''+col+'\')">'+label+arrow+'</th>';
@@ -688,7 +723,11 @@ async function renderCustomers(){
   await Promise.all([loadCampParticipation(rows.map(r=>r.id)),loadCustEvents(rows.map(r=>r.id))]);
 
   const theadCols = colDefs.map(def=>{
-    if(def.type==='camp') return '<th style="cursor:default;user-select:none;white-space:nowrap">'+x(def.cam.name)+'</th>';
+    if(def.type==='camp'){
+      const ckey='camp:'+def.cam.id, cactive=sortCol===ckey;
+      const carrow=cactive?(sortAsc?' ↑':' ↓'):' <span style="opacity:.25">↕</span>';
+      return '<th style="cursor:pointer;user-select:none;white-space:nowrap" title="Sort by who\'s in this activity" onclick="custSort(\''+ckey+'\')">'+x(def.cam.name)+carrow+'</th>';
+    }
     return th(def.col.key,def.col.label,RIGHT_ALIGN.includes(def.col.key)?'right':null);
   }).join('');
 
@@ -1049,9 +1088,9 @@ async function resetColPrefs(){
   await saveColPrefs();
 }
 function custSort(col){
-  if(col.startsWith('camp:'))return;
+  if(NON_SORTABLE_COLS.has(col))return;
   if(S.custSort===col)S.custSortAsc=!S.custSortAsc;
-  else{S.custSort=col;S.custSortAsc=!['all_time_spend','last_12m_spend','prior_12m_spend','invoice_count'].includes(col);}
+  else{S.custSort=col;S.custSortAsc=!(['all_time_spend','last_12m_spend','prior_12m_spend','invoice_count'].includes(col)||col.startsWith('camp:'));}
   S.custPage=0;renderCustomers();
 }
 async function custCSV(){
