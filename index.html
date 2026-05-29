@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet"/>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
 :root{
   --bg:#f4f3ef;--surface:#fff;--surface2:#faf9f6;
@@ -284,6 +285,7 @@ tbody tr{transition:background .1s}tbody tr:hover{background:var(--surface2);cur
       <button class="sb-item" id="nav-tasks" onclick="go('tasks')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>Tasks<span class="sb-badge" id="sb-tc"></span></button>
       <div class="sb-divider"></div>
       <button class="sb-item" id="nav-import" onclick="go('import')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>Import Customers</button>
+      <button class="sb-item" id="nav-import-activity" onclick="go('import-activity')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>Import Activities</button>
       <button class="sb-item" id="nav-rules" onclick="go('rules')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/><line x1="9" y1="9" x2="11" y2="9"/></svg>Business Rules</button>
       <button class="sb-item" id="nav-settings" onclick="go('settings')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Settings</button>
     </div>
@@ -294,7 +296,7 @@ tbody tr{transition:background .1s}tbody tr:hover{background:var(--surface2);cur
   <div class="main">
     <div class="topbar">
       <div class="topbar-title" id="tb-title">Dashboard</div>
-      <div class="topbar-version" title="CRM build version">v11 · 19 Apr 26</div>
+      <div class="topbar-version" title="CRM build version">v12 · 29 May 26</div>
       <div class="topbar-sub" id="tb-sub"></div>
       <div class="topbar-right" id="tb-actions"></div>
     </div>
@@ -511,6 +513,7 @@ function go(view,params={}){
     renderTasks();
   }
   else if(view==='import'){setTitle('Import Centre');renderImport();}
+  else if(view==='import-activity'){setTitle('Import Activities');renderImportActivity();}
   else if(view==='campaigns'){setTitle('Campaigns');renderCampaigns();}
   else if(view==='rules'){
     setTitle('Business Rules');
@@ -1736,6 +1739,161 @@ function importReset(){
   document.getElementById('import-step-upload').classList.add('active');
   document.getElementById('csv-file').value='';
   loadImportHistory();
+}
+
+// ═══ IMPORT ACTIVITIES (create activity column + tick matched customers) ═══
+let _actImport=null;
+
+function renderImportActivity(){
+  setPage(`
+    <div style="max-width:760px">
+      <div style="font-size:13px;color:var(--text2);margin-bottom:14px;line-height:1.55">
+        Upload a CSV or Excel file to create a new <strong>activity column</strong> and tick the customers it applies to.
+        The file just needs a <strong>customer code</strong> column and an <strong>activity name</strong> column (e.g. <span style="font-family:var(--mono)">Code</span> + <span style="font-family:var(--mono)">Mailout</span>) — all other columns are ignored.
+      </div>
+      <div class="import-zone" id="act-drop-zone" onclick="document.getElementById('act-file').click()" ondragover="event.preventDefault();this.classList.add('drag')" ondragleave="this.classList.remove('drag')" ondrop="handleActDrop(event)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        <p>Drop a CSV or Excel file here or click to browse</p>
+        <small>.csv, .xls and .xlsx supported · header row required</small>
+      </div>
+      <input type="file" id="act-file" accept=".csv,.xls,.xlsx" style="display:none" onchange="handleActFile(this.files[0])"/>
+      <div id="act-err" class="inline-err"></div>
+      <div id="act-confirm"></div>
+    </div>
+  `);
+}
+
+function handleActDrop(e){
+  e.preventDefault();
+  document.getElementById('act-drop-zone').classList.remove('drag');
+  const f=e.dataTransfer.files[0];
+  if(f)handleActFile(f);
+}
+
+function handleActFile(file){
+  if(!file)return;
+  const errEl=document.getElementById('act-err');if(errEl)errEl.textContent='';
+  const name=file.name.toLowerCase();
+  const isCsv=name.endsWith('.csv');
+  const reader=new FileReader();
+  reader.onload=e=>{
+    try{
+      let parsed;
+      if(isCsv){
+        parsed=parseCSV(e.target.result);
+      }else{
+        if(typeof XLSX==='undefined')throw new Error('Spreadsheet reader still loading — try again in a second');
+        const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});
+        const ws=wb.Sheets[wb.SheetNames[0]];
+        const aoa=XLSX.utils.sheet_to_json(ws,{header:1,blankrows:false,defval:''});
+        if(!aoa.length)throw new Error('Sheet is empty');
+        const headers=aoa[0].map(h=>String(h==null?'':h).trim());
+        const rows=[];
+        for(let i=1;i<aoa.length;i++){
+          const row={};let any=false;
+          headers.forEach((h,j)=>{const v=aoa[i][j];const sv=(v==null?'':String(v)).trim();row[h]=sv;if(sv)any=true;});
+          if(any)rows.push(row);
+        }
+        parsed={headers,rows};
+      }
+      if(!parsed.rows.length)throw new Error('No data rows found');
+      prepActImport(parsed,file.name);
+    }catch(err){if(errEl)errEl.textContent='Could not read file: '+err.message;}
+  };
+  if(isCsv)reader.readAsText(file);else reader.readAsArrayBuffer(file);
+}
+
+function prepActImport(parsed,filename){
+  const headers=parsed.headers;
+  const find=re=>headers.find(h=>re.test((h||'').toLowerCase().trim()));
+  const codeCol=find(/^code$|customer\s*code|kf\s*code|account\s*code/)||headers[0];
+  const actCol=find(/mailout|activity|mailing|campaign|event/)||headers[1];
+  const names=[...new Set(parsed.rows.map(r=>(r[actCol]||'').trim()).filter(Boolean))];
+  const codes=parsed.rows.map(r=>(r[codeCol]||'').trim()).filter(Boolean);
+  _actImport={parsed,filename,codeCol,actCol};
+  const defaultName=names.length===1?names[0]:'';
+  document.getElementById('act-confirm').innerHTML=`
+    <div style="margin-top:18px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px">
+      <div style="font-size:14px;font-weight:700;margin-bottom:10px">Ready to import</div>
+      <div style="font-size:13px;color:var(--text2);line-height:1.7;margin-bottom:14px">
+        File: <strong>${x(filename)}</strong><br>
+        Customer code column: <strong>${x(codeCol||'—')}</strong><br>
+        Activity column: <strong>${x(actCol||'—')}</strong><br>
+        Codes in file: <strong>${codes.length}</strong>${names.length>1?` · <span style="color:var(--amber)">${names.length} different activity names — each becomes its own column</span>`:''}
+      </div>
+      ${names.length<=1?`<label class="f-label">Activity name (the column heading)</label>
+      <input class="f-input" id="act-name" value="${x(defaultName)}" placeholder="e.g. Roll Fold"/>`:`<div style="font-size:12px;color:var(--text3);margin-bottom:8px">Activity names from the file: ${names.map(n=>x(n)).join(', ')}</div>`}
+      <div style="display:flex;gap:8px;margin-top:14px">
+        <button class="btn" onclick="renderImportActivity()">Cancel</button>
+        <button class="btn btn-primary" onclick="runActImport()">Create activity &amp; apply</button>
+      </div>
+      <div id="act-run" style="margin-top:14px"></div>
+    </div>`;
+}
+
+async function runActImport(){
+  if(!_actImport)return;
+  const{parsed,codeCol,actCol,filename}=_actImport;
+  const runEl=document.getElementById('act-run');
+  const nameInput=document.getElementById('act-name');
+  const groups={};
+  parsed.rows.forEach(r=>{
+    const code=(r[codeCol]||'').trim();if(!code)return;
+    let nm=(r[actCol]||'').trim();
+    if(nameInput)nm=nameInput.value.trim()||nm;
+    if(!nm)return;
+    (groups[nm]=groups[nm]||[]).push(code);
+  });
+  const activityNames=Object.keys(groups);
+  if(!activityNames.length){runEl.innerHTML='<div class="inline-err">No activity name or codes found in the file.</div>';return;}
+  runEl.innerHTML='<div class="ml-syncing"><span class="spinner"></span> Importing…</div>';
+
+  let totalLinked=0;const totalUnmatched=[];const createdCols=[];
+  try{
+    for(const nm of activityNames){
+      let cam=S.campaigns.find(c=>c.name.toLowerCase()===nm.toLowerCase());
+      if(!cam){
+        const{data,error}=await sb.from('campaigns').insert({name:nm,created_by:S.user.id}).select().single();
+        if(error)throw new Error('creating activity "'+nm+'": '+error.message);
+        cam=data;S.campaigns.push(cam);
+      }
+      const codes=[...new Set(groups[nm].map(c=>c.trim()).filter(Boolean))];
+      const idByCode={};
+      for(let i=0;i<codes.length;i+=200){
+        const chunk=codes.slice(i,i+200);
+        const{data}=await sb.from('customers').select('id,kf_code').in('kf_code',chunk);
+        (data||[]).forEach(c=>{if(c.kf_code)idByCode[c.kf_code.trim().toLowerCase()]=c.id;});
+      }
+      const matched=[];
+      codes.forEach(c=>{const id=idByCode[c.toLowerCase()];if(id)matched.push(id);else totalUnmatched.push(c);});
+      const nowIso=new Date().toISOString();
+      for(let i=0;i<matched.length;i+=200){
+        const chunk=matched.slice(i,i+200).map(id=>({campaign_id:cam.id,customer_id:id,activated_at:nowIso}));
+        const{error}=await sb.from('campaign_customers').upsert(chunk,{onConflict:'campaign_id,customer_id'});
+        if(error)throw new Error('linking customers: '+error.message);
+      }
+      totalLinked+=matched.length;
+      const key='camp:'+cam.id;
+      if(!S.custCols)S.custCols=DEFAULT_COLS.map(c=>({...c}));
+      // Drop the imported activity at the TOP of the column list, visible, with no duplicate
+      S.custCols=S.custCols.filter(c=>c.key!==key);
+      S.custCols.unshift({key,label:cam.name,visible:true});
+      createdCols.push(cam.name);
+    }
+    await saveColPrefs();
+    try{await sb.from('import_batches').insert({source:'activity',filename:filename||'activity.csv',row_count:parsed.rows.length,status:'complete',created_count:totalLinked,updated_count:0,error_count:totalUnmatched.length});}catch(e){}
+  }catch(err){runEl.innerHTML='<div class="inline-err">Error '+x(err.message)+'</div>';return;}
+
+  runEl.innerHTML=`
+    <div class="import-results" style="margin-top:4px">
+      <div class="result-card"><div class="result-n" style="color:var(--green)">${totalLinked}</div><div class="result-l">Customers ticked</div></div>
+      <div class="result-card"><div class="result-n" style="color:${totalUnmatched.length?'var(--amber)':'var(--text3)'}">${totalUnmatched.length}</div><div class="result-l">Codes not found</div></div>
+      <div class="result-card"><div class="result-n" style="color:var(--blue)">${createdCols.length}</div><div class="result-l">Column${createdCols.length===1?'':'s'}</div></div>
+    </div>
+    <div style="font-size:12px;color:var(--text2);margin-top:10px">Added: <strong>${createdCols.map(n=>x(n)).join(', ')}</strong> — now visible in Customers and toggleable in the columns dropdown.</div>
+    ${totalUnmatched.length?`<div style="margin-top:10px;background:var(--amber-bg);border-radius:var(--r);padding:8px 12px;font-size:11px;font-family:var(--mono);color:var(--amber);max-height:120px;overflow-y:auto">Codes not matched to a customer: ${totalUnmatched.slice(0,60).map(u=>x(u)).join(', ')}${totalUnmatched.length>60?' …':''}</div>`:''}
+    <div style="margin-top:14px;display:flex;gap:8px"><button class="btn btn-primary" onclick="go('customers')">View Customers</button><button class="btn" onclick="renderImportActivity()">Import another</button></div>`;
+  _actImport=null;
 }
 
 // ═══ MAILERLITE SYNC ═══
