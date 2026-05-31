@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Brainbox CRM</title><!-- v20260531144526 -->
+<title>Brainbox CRM</title><!-- v20260531151234 -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet"/>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -77,6 +77,20 @@ textarea.f-input{resize:vertical;min-height:72px}
 .update-banner{background:var(--accent);color:#fff;padding:9px 16px;text-align:center;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;flex-shrink:0;transition:opacity .15s}
 .update-banner:hover{opacity:.92}
 .update-banner u{text-decoration-thickness:1.5px;text-underline-offset:2px}
+.col-funnel{display:inline-flex;align-items:center;margin-left:5px;cursor:pointer;color:var(--text3);vertical-align:middle;opacity:.55;transition:opacity .1s,color .1s}
+.col-funnel:hover{opacity:1;color:var(--text)}
+.col-funnel.on{color:var(--accent);opacity:1}
+.filter-pop{position:fixed;z-index:300;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--sh-lg);width:248px;font-size:13px;overflow:hidden}
+.filter-pop-head{padding:8px 12px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);background:var(--surface2);border-bottom:1px solid var(--border)}
+.filter-pop-body{padding:10px 12px;display:flex;flex-direction:column;gap:6px}
+.filter-pop-foot{padding:8px 12px;border-top:1px solid var(--border);display:flex;justify-content:space-between;gap:8px;background:var(--surface2)}
+.flt-lbl{font-size:10px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;margin-top:2px}
+.flt-check,.flt-radio{display:flex;align-items:center;gap:7px;font-size:13px;padding:3px 2px;cursor:pointer}
+.flt-check input,.flt-radio input{margin:0}
+.filter-chips{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:8px 0 2px;flex-shrink:0}
+.filter-chip{display:inline-flex;align-items:center;gap:6px;background:var(--accent-s);color:var(--accent);border:1px solid var(--accent-s2);border-radius:14px;padding:3px 6px 3px 10px;font-size:12px;font-weight:600}
+.filter-chip-x{cursor:pointer;font-size:14px;line-height:1;opacity:.7;padding:0 2px;border-radius:50%}
+.filter-chip-x:hover{opacity:1;background:rgba(0,0,0,.08)}
 .topbar-title{font-size:15px;font-weight:700;letter-spacing:-.3px}
 .topbar-version{font-size:11px;color:var(--text3);font-family:var(--mono);padding:2px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:12px;font-weight:500}
 .topbar-sub{font-size:12px;color:var(--text3)}
@@ -300,7 +314,7 @@ tbody tr{transition:background .1s}tbody tr:hover{background:var(--surface2);cur
     <div id="updateBanner" class="update-banner" style="display:none" onclick="applyUpdate()"><span style="font-size:15px">⟳</span><span>A new version is available — <u>click to refresh</u></span></div>
     <div class="topbar">
       <div class="topbar-title" id="tb-title">Dashboard</div>
-      <div class="topbar-version" title="CRM build version">v14 · 31 May 26</div>
+      <div class="topbar-version" title="CRM build version">v15 · 31 May 26</div>
       <div class="topbar-sub" id="tb-sub"></div>
       <div class="topbar-right" id="tb-actions"></div>
     </div>
@@ -326,7 +340,7 @@ const SURL = 'https://ypfwecopdsielnouxwzv.supabase.co';
 const SKEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlwZndlY29wZHNpZWxub3V4d3p2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3NDMyNjgsImV4cCI6MjA5MTMxOTI2OH0.ll4Epk7es-knrgbG6j0e5xo59OEdMFwpxeWmMs9RfpU';
 const sb = supabase.createClient(SURL, SKEY);
 const PG = 250;
-const CRM_VERSION = '14'; // bump on each deploy; must match version.json
+const CRM_VERSION = '15'; // bump on each deploy; must match version.json
 // Columns derived from joins/arrays that can't be ordered server-side — rendered as non-clickable headers
 const NON_SORTABLE_COLS = new Set(['contact_name','contact_first','contact_last','contact_email','name_2','email_2','name_3','email_3','name_4','email_4']);
 // Display key -> real orderable customer column
@@ -625,88 +639,43 @@ async function renderCustomers(){
   const sortCol = S.custSort || 'company_name';
   const sortAsc = S.custSortAsc !== false;
 
-  // Shared SELECT + filters
+  // Unified server-side query: filters (toolbar + per-column) + sort + pagination + count in one call
   const SEL = 'id,kf_code,company_name,status,all_time_spend,last_12m_spend,prior_12m_spend,country_name,last_order_date,last_contacted_at,store_type,source,invoice_count,hidden,phone,mobile,website,address_1,address_2,address_3,address_4,postcode,delivery_address_1,delivery_address_2,delivery_address_3,delivery_address_4,delivery_postcode,first_invoiced,kf_created_date,notes,customer_notes,new_non_ha,shrig_only,ml_any_subscribed,ml_group_names,territorial_protection,conflict_kf_code,conflict_info,contacts(first_name,last_name,email,is_primary)';
-  const applyCustFilters = (qq) => {
-    if(!S.custShowHidden) qq = qq.eq('hidden', false);
-    if(!S.custShowDoubleStar) qq = qq.eq('territorial_protection', false);
-    if(S.custShrigOnly) qq = qq.eq('shrig_only', true);
-    if(S.custSearch) qq = qq.ilike('company_name', '%'+S.custSearch+'%');
-    if(S.custStatus === 'dormant'){
-      const cutoff = new Date(Date.now()-365*864e5).toISOString().split('T')[0];
-      qq = qq.or('status.eq.dormant,last_order_date.lt.'+cutoff);
-    } else if(S.custStatus){
-      qq = qq.eq('status', S.custStatus);
-    }
-    if(S.custEngagement){
-      const days = parseInt(S.custEngagement);
-      const cutoff = new Date(Date.now()-days*864e5).toISOString();
-      qq = qq.or('last_contacted_at.is.null,last_contacted_at.lt.'+cutoff);
-    }
-    return qq;
-  };
+  S.colFilters = S.colFilters || {};
 
-  let data=null, error=null;
-  if(sortCol.startsWith('camp:')){
-    // Activity column sort — order by membership server-side via RPC, then load the page's rows by id
-    const campId = sortCol.slice(5);
-    const rpc = await sb.rpc('customers_campaign_sort', {
-      p_campaign: campId,
-      p_members_first: !sortAsc,
-      p_limit: PG,
-      p_offset: S.custPage*PG,
-      p_show_hidden: !!S.custShowHidden,
-      p_show_double: !!S.custShowDoubleStar,
-      p_shrig_only: !!S.custShrigOnly,
-      p_search: S.custSearch||'',
-      p_status: S.custStatus||'',
-      p_engagement: S.custEngagement?parseInt(S.custEngagement):0
-    });
-    if(rpc.error){ error=rpc.error; }
-    else{
-      const pageIds=(rpc.data||[]).map(r=>r.id);
-      if(pageIds.length){
-        const res = await applyCustFilters(sb.from('customers').select(SEL)).in('id', pageIds);
-        if(res.error) error=res.error;
-        else{ const byId={}; (res.data||[]).forEach(r=>byId[r.id]=r); data=pageIds.map(id=>byId[id]).filter(Boolean); }
-      } else { data=[]; }
-    }
-  } else {
-    const orderCol = SORT_COL_MAP[sortCol] || sortCol;
-    let q = applyCustFilters(sb.from('customers').select(SEL));
-    const numericCols = ['all_time_spend','last_12m_spend','prior_12m_spend','invoice_count','last_order_date','first_invoiced','kf_created_date'];
-    if(numericCols.includes(orderCol)){
-      q = q.order(orderCol, {ascending: sortAsc, nullsFirst: false});
-    } else {
-      q = q.order(orderCol, {ascending: sortAsc});
-    }
-    q = q.range(S.custPage*PG, (S.custPage+1)*PG-1);
-    const res = await q; data=res.data; error=res.error;
-  }
+  const { data: idRows, error } = await sb.rpc('customers_query', {
+    p_sort: sortCol,
+    p_dir: sortAsc ? 'asc' : 'desc',
+    p_limit: PG,
+    p_offset: S.custPage*PG,
+    p_show_hidden: !!S.custShowHidden,
+    p_show_double: !!S.custShowDoubleStar,
+    p_shrig_only: !!S.custShrigOnly,
+    p_search: S.custSearch||'',
+    p_status: S.custStatus||'',
+    p_engagement: S.custEngagement ? parseInt(S.custEngagement) : 0,
+    p_filters: serializeColFilters()
+  });
   if(error){
     setPage('<div style="padding:32px;color:var(--red)"><strong>Error:</strong> '+error.message+'</div>');
     return;
   }
-
-  // Count query
-  let cq = sb.from('customers').select('*',{count:'exact',head:true});
-  if(!S.custShowHidden) cq = cq.eq('hidden', false);
-  if(!S.custShowDoubleStar) cq = cq.eq('territorial_protection', false);
-  if(S.custShrigOnly) cq = cq.eq('shrig_only', true);
-  if(S.custSearch) cq = cq.ilike('company_name','%'+S.custSearch+'%');
-  if(S.custStatus==='dormant'){const cut=new Date(Date.now()-365*864e5).toISOString().split('T')[0];cq=cq.or('status.eq.dormant,last_order_date.lt.'+cut);}
-  else if(S.custStatus) cq = cq.eq('status',S.custStatus);
-  if(S.custEngagement){const d=parseInt(S.custEngagement);const cut=new Date(Date.now()-d*864e5).toISOString();cq=cq.or('last_contacted_at.is.null,last_contacted_at.lt.'+cut);}
-  const {count} = await cq;
-
-  const rows = data || [];
+  const count = (idRows && idRows.length) ? Number(idRows[0].total) : 0;
+  const pageIds = (idRows||[]).map(r=>r.id);
+  let rows = [];
+  if(pageIds.length){
+    const res = await sb.from('customers').select(SEL).in('id', pageIds);
+    if(res.error){ setPage('<div style="padding:32px;color:var(--red)"><strong>Error:</strong> '+res.error.message+'</div>'); return; }
+    const byId={}; (res.data||[]).forEach(r=>byId[r.id]=r);
+    rows = pageIds.map(id=>byId[id]).filter(Boolean);
+  }
   const pages = Math.ceil((count||0)/PG);
 
   const th = (col, label, align) => {
     if(NON_SORTABLE_COLS.has(col)) return '<th style="white-space:nowrap">'+label+'</th>';
     const active = sortCol===col, asc = active&&sortAsc;
     const arrow = active ? (asc ? ' ↑' : ' ↓') : ' <span style="opacity:.25">↕</span>';
-    return '<th style="cursor:pointer;user-select:none;white-space:nowrap;" onclick="custSort(\''+col+'\')">'+label+arrow+'</th>';
+    return '<th style="white-space:nowrap"><span style="cursor:pointer;user-select:none" onclick="custSort(\''+col+'\')">'+label+arrow+'</span>'+filterFunnel(col)+'</th>';
   };
 
   const RIGHT_ALIGN = ['last_12m_spend','prior_12m_spend','all_time_spend','invoice_count'];
@@ -731,7 +700,7 @@ async function renderCustomers(){
     if(def.type==='camp'){
       const ckey='camp:'+def.cam.id, cactive=sortCol===ckey;
       const carrow=cactive?(sortAsc?' ↑':' ↓'):' <span style="opacity:.25">↕</span>';
-      return '<th style="cursor:pointer;user-select:none;white-space:nowrap" title="Sort by who\'s in this activity" onclick="custSort(\''+ckey+'\')">'+x(def.cam.name)+carrow+'</th>';
+      return '<th style="white-space:nowrap"><span style="cursor:pointer;user-select:none" title="Sort by who\'s in this activity" onclick="custSort(\''+ckey+'\')">'+x(def.cam.name)+carrow+'</span>'+filterFunnel(ckey)+'</th>';
     }
     return th(def.col.key,def.col.label,RIGHT_ALIGN.includes(def.col.key)?'right':null);
   }).join('');
@@ -801,6 +770,7 @@ async function renderCustomers(){
         </div>
       </div>
     </div>
+    ${renderFilterChips()}
     <div class="table-wrap" style="max-height:calc(100vh - 240px)">
       <table><thead><tr>
         ${th('company_name','Company')}
@@ -1092,6 +1062,132 @@ async function resetColPrefs(){
   renderCustomers();
   await saveColPrefs();
 }
+// ── COLUMN HEADER FILTERS ───────────────────────────────────────
+// Display-key -> real DB column for filtering
+const FILTER_DB_COL = {ml_subscribed:'ml_any_subscribed', ml_groups:'ml_group_names'};
+const FILTER_ENUM = new Set(['status','store_type','source','country_name','new_non_ha','shrig_only','ml_subscribed']);
+const FILTER_BOOL = new Set(['new_non_ha','shrig_only','ml_subscribed']);
+const FILTER_NUM  = new Set(['all_time_spend','last_12m_spend','prior_12m_spend','invoice_count']);
+const FILTER_DATE = new Set(['last_order_date','first_invoiced','kf_created_date','last_contacted_at']);
+const FILTER_TEXT = new Set(['company_name','kf_code','postcode','delivery_postcode','phone','mobile','website','address_1','address_2','address_3','address_4','ml_groups']);
+
+function filterTypeFor(col){
+  if(!col) return null;
+  if(col.startsWith('camp:')) return 'camp';
+  if(FILTER_ENUM.has(col)) return 'enum';
+  if(FILTER_NUM.has(col))  return 'num';
+  if(FILTER_DATE.has(col)) return 'date';
+  if(FILTER_TEXT.has(col)) return 'text';
+  return null;
+}
+
+function filterFunnel(col){
+  if(!filterTypeFor(col)) return '';
+  const on = !!(S.colFilters && S.colFilters[col]);
+  return '<span class="col-funnel'+(on?' on':'')+'" title="Filter this column" onclick="event.stopPropagation();openColFilter(\''+col+'\',event)">'
+    +'<svg viewBox="0 0 24 24" width="11" height="11" fill="'+(on?'currentColor':'none')+'" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg></span>';
+}
+
+function serializeColFilters(){
+  const out=[]; const f=S.colFilters||{};
+  for(const key in f){
+    const spec=f[key]; if(!spec) continue;
+    const dbcol = FILTER_DB_COL[key] || key;
+    if(spec.type==='camp'){ out.push({c:key, op:spec.mode}); }
+    else if(spec.type==='text'){ if(spec.q) out.push({c:dbcol, op:'ilike', t:'text', v:spec.q}); }
+    else if(spec.type==='enum'){ if(spec.values&&spec.values.length) out.push({c:dbcol, op:'in', t: FILTER_BOOL.has(key)?'bool':'text', v:spec.values}); }
+    else if(spec.type==='num'){
+      if(spec.min!=='' && spec.min!=null) out.push({c:dbcol, op:'gte', t:'num', v:String(spec.min)});
+      if(spec.max!=='' && spec.max!=null) out.push({c:dbcol, op:'lte', t:'num', v:String(spec.max)});
+    } else if(spec.type==='date'){
+      if(spec.from) out.push({c:dbcol, op:'gte', t:'date', v:spec.from});
+      if(spec.to)   out.push({c:dbcol, op:'lte', t:'date', v:spec.to});
+    }
+  }
+  return out;
+}
+
+function colLabel(col){
+  if(col.startsWith('camp:')){ const cam=S.campaigns.find(c=>'camp:'+c.id===col); return cam?cam.name:'Activity'; }
+  const c=(S.custCols||[]).find(x=>x.key===col)||ALL_COLS.find(x=>x.key===col); return c?c.label:col;
+}
+
+function filterSummary(col){
+  const s=S.colFilters[col]; if(!s) return '';
+  if(s.type==='camp') return s.mode==='in'?'ticked':'not ticked';
+  if(s.type==='text') return '"'+s.q+'"';
+  if(s.type==='enum') return s.values.length>2?s.values.length+' selected':s.values.join(', ');
+  if(s.type==='num'){ const a=[]; if(s.min!=='' &&s.min!=null)a.push('≥'+s.min); if(s.max!==''&&s.max!=null)a.push('≤'+s.max); return a.join(' '); }
+  if(s.type==='date'){ const a=[]; if(s.from)a.push('from '+s.from); if(s.to)a.push('to '+s.to); return a.join(' '); }
+  return '';
+}
+
+function renderFilterChips(){
+  const keys=Object.keys(S.colFilters||{}); if(!keys.length) return '';
+  const chips=keys.map(k=>'<span class="filter-chip">'+x(colLabel(k))+': '+x(filterSummary(k))
+    +'<span class="filter-chip-x" onclick="clearColFilter(\''+k+'\')">×</span></span>').join('');
+  return '<div class="filter-chips"><span style="font-size:11px;color:var(--text3);font-weight:600">FILTERS:</span>'+chips
+    +'<button class="btn btn-xs" onclick="clearAllColFilters()">Clear all</button></div>';
+}
+
+let _filterPop=null;
+function closeColFilter(){ if(_filterPop){_filterPop.remove();_filterPop=null;} document.removeEventListener('mousedown',_filterOutside,true); }
+function _filterOutside(e){ if(_filterPop && !_filterPop.contains(e.target)) closeColFilter(); }
+
+async function openColFilter(col, ev){
+  closeColFilter();
+  const type=filterTypeFor(col); if(!type) return;
+  const rect=ev.currentTarget.getBoundingClientRect();
+  const pop=document.createElement('div'); pop.className='filter-pop';
+  pop.style.top=(rect.bottom+4)+'px';
+  pop.style.left=Math.max(8,Math.min(rect.left-10, window.innerWidth-280))+'px';
+  pop.innerHTML='<div class="filter-pop-body">Loading…</div>';
+  document.body.appendChild(pop); _filterPop=pop;
+  setTimeout(()=>document.addEventListener('mousedown',_filterOutside,true),0);
+  const cur=S.colFilters[col]||{};
+  let body='';
+  if(type==='text'){
+    body='<input id="flt-q" class="f-input" placeholder="contains…" value="'+x(cur.q||'')+'" onkeydown="if(event.key===\'Enter\')applyColFilter(\''+col+'\',\'text\')"/>';
+  } else if(type==='num'){
+    body='<div style="display:flex;gap:6px"><input id="flt-min" class="f-input" type="number" placeholder="min" value="'+(cur.min??'')+'"/><input id="flt-max" class="f-input" type="number" placeholder="max" value="'+(cur.max??'')+'"/></div>';
+  } else if(type==='date'){
+    body='<label class="flt-lbl">From</label><input id="flt-from" class="f-input" type="date" value="'+(cur.from||'')+'"/><label class="flt-lbl">To</label><input id="flt-to" class="f-input" type="date" value="'+(cur.to||'')+'"/>';
+  } else if(type==='camp'){
+    const m=cur.mode||'';
+    body='<label class="flt-radio"><input type="radio" name="flt-camp" value="" '+(m===''?'checked':'')+'/> All</label>'
+      +'<label class="flt-radio"><input type="radio" name="flt-camp" value="in" '+(m==='in'?'checked':'')+'/> Ticked only</label>'
+      +'<label class="flt-radio"><input type="radio" name="flt-camp" value="notin" '+(m==='notin'?'checked':'')+'/> Not ticked</label>';
+  } else if(type==='enum'){
+    const dbcol=FILTER_DB_COL[col]||col; let vals=[];
+    if(FILTER_BOOL.has(col)){ vals=['true','false']; }
+    else {
+      try{ const {data}=await sb.rpc('distinct_values',{p_col:dbcol}); vals=(data||[]).map(r=>r.val); }catch(e){ vals=[]; }
+    }
+    const sel=new Set(cur.values||[]);
+    const boxes=vals.map(v=>'<label class="flt-check"><input type="checkbox" class="flt-enum" value="'+x(v)+'" '+(sel.has(v)?'checked':'')+'/> '+x(FILTER_BOOL.has(col)?(v==='true'?'Yes':'No'):v)+'</label>').join('');
+    body='<div style="max-height:220px;overflow-y:auto">'+(boxes||'<div style="font-size:12px;color:var(--text3)">No values</div>')+'</div>';
+  }
+  const applyType=type;
+  pop.innerHTML='<div class="filter-pop-head">'+x(colLabel(col))+'</div><div class="filter-pop-body">'+body+'</div>'
+    +'<div class="filter-pop-foot"><button class="btn btn-xs" onclick="clearColFilter(\''+col+'\')">Clear</button>'
+    +'<button class="btn btn-xs btn-primary" onclick="applyColFilter(\''+col+'\',\''+applyType+'\')">Apply</button></div>';
+  // reposition if overflowing bottom
+  const r2=pop.getBoundingClientRect(); if(r2.bottom>window.innerHeight-8){ pop.style.top=Math.max(8,window.innerHeight-r2.height-8)+'px'; }
+}
+
+function applyColFilter(col, type){
+  let spec=null;
+  if(type==='text'){ const q=(document.getElementById('flt-q').value||'').trim(); spec=q?{type:'text',q}:null; }
+  else if(type==='num'){ const mn=document.getElementById('flt-min').value.trim(), mx=document.getElementById('flt-max').value.trim(); spec=(mn||mx)?{type:'num',min:mn,max:mx}:null; }
+  else if(type==='date'){ const fr=document.getElementById('flt-from').value, to=document.getElementById('flt-to').value; spec=(fr||to)?{type:'date',from:fr,to}:null; }
+  else if(type==='camp'){ const m=(document.querySelector('input[name="flt-camp"]:checked')||{}).value||''; spec=m?{type:'camp',mode:m}:null; }
+  else if(type==='enum'){ const vals=[...document.querySelectorAll('.flt-enum:checked')].map(b=>b.value); spec=vals.length?{type:'enum',values:vals}:null; }
+  if(spec) S.colFilters[col]=spec; else delete S.colFilters[col];
+  closeColFilter(); S.custPage=0; renderCustomers();
+}
+function clearColFilter(col){ delete S.colFilters[col]; closeColFilter(); S.custPage=0; renderCustomers(); }
+function clearAllColFilters(){ S.colFilters={}; closeColFilter(); S.custPage=0; renderCustomers(); }
+
 function custSort(col){
   if(NON_SORTABLE_COLS.has(col))return;
   if(S.custSort===col)S.custSortAsc=!S.custSortAsc;
