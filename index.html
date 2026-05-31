@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Brainbox CRM</title><!-- v20260529105329 -->
+<title>Brainbox CRM</title><!-- v20260531144526 -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet"/>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -74,6 +74,9 @@ textarea.f-input{resize:vertical;min-height:72px}
 /* MAIN */
 .main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
 .topbar{height:52px;background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 20px;gap:8px;flex-shrink:0}
+.update-banner{background:var(--accent);color:#fff;padding:9px 16px;text-align:center;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;flex-shrink:0;transition:opacity .15s}
+.update-banner:hover{opacity:.92}
+.update-banner u{text-decoration-thickness:1.5px;text-underline-offset:2px}
 .topbar-title{font-size:15px;font-weight:700;letter-spacing:-.3px}
 .topbar-version{font-size:11px;color:var(--text3);font-family:var(--mono);padding:2px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:12px;font-weight:500}
 .topbar-sub{font-size:12px;color:var(--text3)}
@@ -294,9 +297,10 @@ tbody tr{transition:background .1s}tbody tr:hover{background:var(--surface2);cur
     </div>
   </nav>
   <div class="main">
+    <div id="updateBanner" class="update-banner" style="display:none" onclick="applyUpdate()"><span style="font-size:15px">⟳</span><span>A new version is available — <u>click to refresh</u></span></div>
     <div class="topbar">
       <div class="topbar-title" id="tb-title">Dashboard</div>
-      <div class="topbar-version" title="CRM build version">v13 · 29 May 26</div>
+      <div class="topbar-version" title="CRM build version">v14 · 31 May 26</div>
       <div class="topbar-sub" id="tb-sub"></div>
       <div class="topbar-right" id="tb-actions"></div>
     </div>
@@ -322,6 +326,7 @@ const SURL = 'https://ypfwecopdsielnouxwzv.supabase.co';
 const SKEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlwZndlY29wZHNpZWxub3V4d3p2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3NDMyNjgsImV4cCI6MjA5MTMxOTI2OH0.ll4Epk7es-knrgbG6j0e5xo59OEdMFwpxeWmMs9RfpU';
 const sb = supabase.createClient(SURL, SKEY);
 const PG = 250;
+const CRM_VERSION = '14'; // bump on each deploy; must match version.json
 // Columns derived from joins/arrays that can't be ordered server-side — rendered as non-clickable headers
 const NON_SORTABLE_COLS = new Set(['contact_name','contact_first','contact_last','contact_email','name_2','email_2','name_3','email_3','name_4','email_4']);
 // Display key -> real orderable customer column
@@ -3526,6 +3531,28 @@ async function showCampStats(campId){
     </div>`;
   document.getElementById('modal-overlay').hidden=false;
 }
+
+// ── AUTO-UPDATE CHECK ───────────────────────────────────────────
+// Poll version.json. If the deployed version differs from the bundled
+// CRM_VERSION, show the "click to refresh" banner at the top of the app.
+async function checkForUpdate(){
+  try{
+    const r=await fetch('version.json?t='+Date.now(),{cache:'no-store'});
+    if(!r.ok)return;
+    const j=await r.json();
+    if(j&&j.version&&String(j.version)!==CRM_VERSION){
+      const b=document.getElementById('updateBanner');
+      if(b)b.style.display='flex';
+    }
+  }catch(e){/* offline or fetch failed — stay silent */}
+}
+function applyUpdate(){
+  // Hard reload with a cache-busting query so GitHub Pages serves the new build
+  location.replace(location.pathname+'?v='+Date.now());
+}
+setTimeout(checkForUpdate,2000);
+setInterval(checkForUpdate,60*1000);
+document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible')checkForUpdate(); });
 </script>
 </body>
 </html>
