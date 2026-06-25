@@ -200,12 +200,12 @@ tbody tr{transition:background .1s}tbody tr:hover{background:var(--surface2);cur
 .act-co{font-weight:600;color:var(--accent);cursor:pointer}
 .act-time{font-size:11px;color:var(--text3);font-family:var(--mono);white-space:nowrap;margin-top:1px}
 /* KANBAN */
-.kanban-wrap{flex:1;overflow-x:auto;overflow-y:hidden;padding:20px;display:flex;gap:14px;align-items:flex-start}
-.kanban-col{width:240px;flex-shrink:0;display:flex;flex-direction:column;gap:0;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;max-height:calc(100vh - 120px)}
+.kanban-wrap{flex:1;min-height:0;overflow-x:auto;overflow-y:hidden;padding:20px;display:flex;gap:14px;align-items:flex-start}
+.kanban-col{width:240px;flex-shrink:0;display:flex;flex-direction:column;gap:0;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;max-height:100%}
 .kanban-head{padding:10px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;background:var(--surface)}
 .kanban-label{font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase}
 .kanban-count{font-size:11px;font-family:var(--mono);color:var(--text3);background:var(--bg);padding:1px 6px;border-radius:10px}
-.kanban-cards{overflow-y:auto;padding:10px 10px;display:flex;flex-direction:column;gap:8px;flex:1}
+.kanban-cards{overflow-y:auto;padding:10px 10px;display:flex;flex-direction:column;gap:8px;flex:1;min-height:0}
 .kcard{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px 12px;cursor:pointer;transition:all .12s}
 .kcard:hover{box-shadow:var(--sh);border-color:var(--border2)}
 .kcard-name{font-size:13px;font-weight:600;margin-bottom:4px;line-height:1.3}
@@ -340,7 +340,7 @@ const SURL = 'https://ypfwecopdsielnouxwzv.supabase.co';
 const SKEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlwZndlY29wZHNpZWxub3V4d3p2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3NDMyNjgsImV4cCI6MjA5MTMxOTI2OH0.ll4Epk7es-knrgbG6j0e5xo59OEdMFwpxeWmMs9RfpU';
 const sb = supabase.createClient(SURL, SKEY);
 const PG = 250;
-const CRM_VERSION = '27'; // bump on each deploy; must match version.json
+const CRM_VERSION = '28'; // bump on each deploy; must match version.json
 const BUILD_DATE = '25 Jun 26'; // shown in the top-bar version label
 // Columns derived from joins/arrays that can't be ordered server-side — rendered as non-clickable headers
 const NON_SORTABLE_COLS = new Set(['contact_name','contact_first','contact_last','contact_email','name_2','email_2','name_3','email_3','name_4','email_4']);
