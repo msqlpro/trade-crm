@@ -341,7 +341,7 @@ const SURL = 'https://ypfwecopdsielnouxwzv.supabase.co';
 const SKEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlwZndlY29wZHNpZWxub3V4d3p2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3NDMyNjgsImV4cCI6MjA5MTMxOTI2OH0.ll4Epk7es-knrgbG6j0e5xo59OEdMFwpxeWmMs9RfpU';
 const sb = supabase.createClient(SURL, SKEY);
 const PG = 250;
-const CRM_VERSION = '21'; // bump on each deploy; must match version.json
+const CRM_VERSION = '22'; // bump on each deploy; must match version.json
 // Columns derived from joins/arrays that can't be ordered server-side — rendered as non-clickable headers
 const NON_SORTABLE_COLS = new Set(['contact_name','contact_first','contact_last','contact_email','name_2','email_2','name_3','email_3','name_4','email_4']);
 // Display key -> real orderable customer column
@@ -1410,8 +1410,6 @@ async function renderCustomerDetail(id){
           ${c.kf_created_date?dr('KF Created',fd(c.kf_created_date)):''}
 
           ${c.mailerlite_id?dr('MailerLite',`<span style="font-family:var(--mono);font-size:11px">${x(c.mailerlite_id)}</span>`):''}
-          ${c.customer_notes?dr('Int. Notes',`<span style="white-space:pre-wrap;font-size:12px;color:var(--text2)">${x(c.customer_notes).replace(/\[/g,'').replace(/\]/g,'')}</span>`):''}
-          ${c.notes?dr('CRM Notes',`<span style="white-space:pre-wrap;font-size:12px;color:var(--text2)">${x(c.notes).replace(/\[/g,'').replace(/\]/g,'')}</span>`):''}
         </div>
 
         ${notesCard(id,notes)}
@@ -1465,6 +1463,7 @@ async function renderCustomerDetail(id){
                   <span class="badge badge-${t.priority||'normal'} priority-badge" style="font-size:10px" onclick="togglePriority('${t.id}','${t.priority||'normal'}')" title="Click to toggle priority">${t.priority==='urgent'?'🔴 urgent':'normal'}</span>
                 </div>
               </div>
+              <button class="btn btn-xs" onclick="showEditTask('${t.id}')" title="Edit task" style="flex-shrink:0;align-self:flex-start">✎</button>
             </div>`).join(''):'<div style="padding:14px;text-align:center;color:var(--text3);font-size:13px">No tasks</div>'}
         </div>
       </div>
@@ -1643,6 +1642,7 @@ function renderTaskItem(t){
         <span class="badge badge-${t.priority||'normal'} priority-badge" style="font-size:10px" onclick="togglePriority('${t.id}','${t.priority||'normal'}')" title="Click to toggle priority">${t.priority==='urgent'?'🔴 urgent':'normal'}</span>
       </div>
     </div>
+    <button class="btn btn-xs" onclick="showEditTask('${t.id}')" title="Edit task" style="flex-shrink:0;align-self:flex-start">✎</button>
   </div>`;
 }
 
@@ -3338,6 +3338,42 @@ async function saveTask(defCustId){
   const custId=document.getElementById('tk-coid').value||defCustId||null;
   const{error}=await sb.from('tasks').insert({title,customer_id:custId||null,due_date:document.getElementById('tk-due').value||null,status:document.getElementById('tk-status').value,priority:document.getElementById('tk-priority').value,assigned_to:S.user.id});
   if(error){err.textContent=error.message;return;}
+  closeModal();refreshCounts();
+  if(custId&&S.view==='customer-detail')go('customer-detail',{id:custId});
+  else if(S.view==='tasks')renderTasks();
+  else if(S.view==='dashboard')renderDashboard();
+}
+
+async function showEditTask(taskId){
+  const{data:t}=await sb.from('tasks').select('*').eq('id',taskId).single();
+  if(!t)return;
+  const sel=(v,cur)=>v===cur?'selected':'';
+  openModal('Edit Task',`
+    <div><label class="f-label">Task Title *</label><input class="f-input" id="tk-title" type="text" value="${x(t.title||'')}"/></div>
+    <div class="form-row" style="margin-top:12px">
+      <div><label class="f-label">Due Date</label><input class="f-input" id="tk-due" type="date" value="${t.due_date||''}"/></div>
+      <div><label class="f-label">Status</label><select class="f-input" id="tk-status"><option value="open" ${sel('open',t.status)}>Open</option><option value="in_progress" ${sel('in_progress',t.status)}>In Progress</option><option value="done" ${sel('done',t.status)}>Done</option></select></div>
+      <div><label class="f-label">Priority</label><select class="f-input" id="tk-priority"><option value="normal" ${sel('normal',t.priority||'normal')}>Normal</option><option value="urgent" ${sel('urgent',t.priority)}>🔴 Urgent</option></select></div>
+    </div>
+    <div id="tk-err" class="inline-err"></div>`,
+    `<button class="btn" style="color:var(--red)" onclick="deleteTask('${t.id}','${t.customer_id||''}')">Delete</button><button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveTaskEdit('${t.id}','${t.customer_id||''}')">Save</button>`);
+}
+async function saveTaskEdit(taskId,custId){
+  const title=document.getElementById('tk-title').value.trim();
+  const err=document.getElementById('tk-err');
+  if(!title){err.textContent='Task title is required.';return;}
+  err.textContent='';
+  const{error}=await sb.from('tasks').update({title,due_date:document.getElementById('tk-due').value||null,status:document.getElementById('tk-status').value,priority:document.getElementById('tk-priority').value}).eq('id',taskId);
+  if(error){err.textContent=error.message;return;}
+  closeModal();refreshCounts();
+  if(custId&&S.view==='customer-detail')go('customer-detail',{id:custId});
+  else if(S.view==='tasks')renderTasks();
+  else if(S.view==='dashboard')renderDashboard();
+}
+async function deleteTask(taskId,custId){
+  if(!confirm('Delete this task?'))return;
+  const{error}=await sb.from('tasks').delete().eq('id',taskId);
+  if(error){alert(error.message);return;}
   closeModal();refreshCounts();
   if(custId&&S.view==='customer-detail')go('customer-detail',{id:custId});
   else if(S.view==='tasks')renderTasks();
