@@ -341,7 +341,7 @@ const SURL = 'https://ypfwecopdsielnouxwzv.supabase.co';
 const SKEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlwZndlY29wZHNpZWxub3V4d3p2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3NDMyNjgsImV4cCI6MjA5MTMxOTI2OH0.ll4Epk7es-knrgbG6j0e5xo59OEdMFwpxeWmMs9RfpU';
 const sb = supabase.createClient(SURL, SKEY);
 const PG = 250;
-const CRM_VERSION = '22'; // bump on each deploy; must match version.json
+const CRM_VERSION = '23'; // bump on each deploy; must match version.json
 // Columns derived from joins/arrays that can't be ordered server-side — rendered as non-clickable headers
 const NON_SORTABLE_COLS = new Set(['contact_name','contact_first','contact_last','contact_email','name_2','email_2','name_3','email_3','name_4','email_4']);
 // Display key -> real orderable customer column
@@ -1577,17 +1577,22 @@ async function pipeSearch(v){
   if(!v||v.length<2){res.style.display='none';return;}
   clearTimeout(_pipeT);
   _pipeT=setTimeout(async()=>{
-    const{data}=await sb.from('customers').select('id,company_name,status,store_type,all_time_spend').ilike('company_name',`%${v}%`).limit(10);
-    if(data?.length){
+    const term=v.trim().replace(/[,()]/g,' ');
+    const{data}=await sb.from('customers')
+      .select('id,company_name,status,store_type,all_time_spend,kf_code,hidden')
+      .or(`company_name.ilike.%${term}%,kf_code.ilike.%${term}%`)
+      .order('company_name').limit(25);
+    if(data&&data.length){
       res.style.display='block';
       res.innerHTML=data.map(c=>`
-        <div style="padding:9px 14px;cursor:pointer;border-bottom:1px solid var(--border);transition:background .1s" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''" onmousedown="pipeSelect('${c.id}','${c.company_name.replace(/'/g,"\'")}')">
-          <div style="font-size:13px;font-weight:500">${x(c.company_name)}</div>
-          <div style="font-size:11px;color:var(--text3)">${x(c.store_type||'')} ${c.all_time_spend?'· £'+N2(c.all_time_spend):''}</div>
+        <div style="padding:9px 14px;cursor:pointer;border-bottom:1px solid var(--border)" data-id="${x(c.id)}" data-name="${x(c.company_name||'')}" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''" onmousedown="pipeSelectEl(this)">
+          <div style="font-size:13px;font-weight:500">${x(c.company_name)}${c.hidden?' <span style="font-size:10px;color:var(--text3)">(hidden)</span>':''}</div>
+          <div style="font-size:11px;color:var(--text3)">${[x(c.store_type||''),c.kf_code?x(c.kf_code):'',c.all_time_spend?'\u00a3'+N2(c.all_time_spend):''].filter(Boolean).join(' \u00b7 ')}</div>
         </div>`).join('');
-    } else {res.style.display='none';}
+    } else { res.style.display='block'; res.innerHTML='<div style="padding:9px 14px;font-size:12px;color:var(--text3)">No matches found</div>'; }
   },200);
 }
+function pipeSelectEl(el){ pipeSelect(el.dataset.id, el.dataset.name||''); }
 
 function pipeSelect(id,name){
   document.getElementById('pipe-sel-id').value=id;
