@@ -116,7 +116,7 @@ textarea.f-input{resize:vertical;min-height:72px}
 .pill{padding:4px 11px;border-radius:20px;font-size:12px;font-weight:500;border:1.5px solid var(--border);background:var(--surface);color:var(--text2);transition:all .12s;cursor:pointer}
 .pill:hover{border-color:var(--border2);color:var(--text)}.pill.on{background:var(--accent);color:#fff;border-color:var(--accent)}
 /* STATS */
-.stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px}
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:20px}
 .dash-actions{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px}
 .dash-action-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:52px}
 .dash-action-left{display:flex;align-items:center;gap:10px;flex:1;min-width:0}
@@ -127,6 +127,7 @@ textarea.f-input{resize:vertical;min-height:72px}
 .stat-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px 18px}
 .stat-n{font-size:26px;font-weight:700;letter-spacing:-.8px;line-height:1;font-variant-numeric:tabular-nums}
 .stat-l{font-size:12px;color:var(--text2);margin-top:5px;font-weight:500}
+.stat-sub{font-size:10px;color:var(--text3);margin-top:3px;line-height:1.3}
 /* TABLE */
 .table-wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow:auto}
 .table-wrap table thead th{position:sticky;top:0;z-index:2;background:var(--surface2)}
@@ -342,7 +343,7 @@ const SURL = 'https://ypfwecopdsielnouxwzv.supabase.co';
 const SKEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlwZndlY29wZHNpZWxub3V4d3p2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3NDMyNjgsImV4cCI6MjA5MTMxOTI2OH0.ll4Epk7es-knrgbG6j0e5xo59OEdMFwpxeWmMs9RfpU';
 const sb = supabase.createClient(SURL, SKEY);
 const PG = 250;
-const CRM_VERSION = '32'; // bump on each deploy; must match version.json
+const CRM_VERSION = '33'; // bump on each deploy; must match version.json
 const BUILD_DATE = '25 Jun 26'; // shown in the top-bar version label
 // Columns derived from joins/arrays that can't be ordered server-side — rendered as non-clickable headers
 const NON_SORTABLE_COLS = new Set(['contact_name','contact_first','contact_last','contact_email','name_2','email_2','name_3','email_3','name_4','email_4']);
@@ -556,13 +557,14 @@ function setPage(h,cls='page'){const el=document.getElementById('main-content');
 async function renderDashboard(){
   const today=new Date().toISOString().split('T')[0];
   const ninety=new Date(Date.now()-90*864e5).toISOString();
-  const[r1,r2,r3,r4,r6,r7]=await Promise.all([
+  const[r1,r2,r3,r4,r6,r7,rLead]=await Promise.all([
     sb.from('customers').select('*',{count:'exact',head:true}),
     sb.from('customers').select('*',{count:'exact',head:true}).eq('status','active'),
     sb.from('customers').select('*',{count:'exact',head:true}).eq('status','prospect'),
     sb.from('customers').select('*',{count:'exact',head:true}).lt('last_order_date', new Date(Date.now()-180*864e5).toISOString().split('T')[0]),
     sb.from('events').select('*,customers(id,company_name)').order('occurred_at',{ascending:false}).limit(15),
     sb.from('customers').select('id,company_name,last_order_date,status').eq('status','active').lt('last_order_date',ninety).order('last_order_date').limit(8),
+    sb.from('customers').select('*',{count:'exact',head:true}).is('last_order_date',null),
   ]);
   setPage(`
     <div class="dash-actions">
@@ -594,10 +596,11 @@ async function renderDashboard(){
       </div>
     </div>
     <div class="stats-grid">
-      <div class="stat-card"><div class="stat-n">${n(r1.count)}</div><div class="stat-l">Total Customers</div></div>
-      <div class="stat-card"><div class="stat-n" style="color:var(--green)">${n(r2.count)}</div><div class="stat-l">Active</div></div>
-      <div class="stat-card"><div class="stat-n" style="color:var(--blue)">${n(r3.count)}</div><div class="stat-l">Prospects</div></div>
-      <div class="stat-card"><div class="stat-n" style="color:var(--red)">${n(r4.count)}</div><div class="stat-l">At Risk</div></div>
+      <div class="stat-card"><div class="stat-n">${n(r1.count)}</div><div class="stat-l">Total Customers</div><div class="stat-sub">All records in the CRM</div></div>
+      <div class="stat-card"><div class="stat-n" style="color:var(--green)">${n(r2.count)}</div><div class="stat-l">Active</div><div class="stat-sub">Account status = Active</div></div>
+      <div class="stat-card"><div class="stat-n" style="color:var(--blue)">${n(r3.count)}</div><div class="stat-l">Prospects</div><div class="stat-sub">Account status = Prospect</div></div>
+      <div class="stat-card"><div class="stat-n" style="color:var(--accent)">${n(rLead.count)}</div><div class="stat-l">Leads</div><div class="stat-sub">Never ordered (no order date)</div></div>
+      <div class="stat-card"><div class="stat-n" style="color:var(--red)">${n(r4.count)}</div><div class="stat-l">At Risk</div><div class="stat-sub">No order in 180+ days (~6 months)</div></div>
     </div>
     <div class="dash-grid">
       <div class="dash-card">
