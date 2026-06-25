@@ -293,6 +293,7 @@ tbody tr{transition:background .1s}tbody tr:hover{background:var(--surface2);cur
     <div class="sb-head">
       <div class="sb-brand"><div class="sb-dot"><svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div><div class="sb-name">Brainbox CRM</div></div>
       <div class="sb-email" id="sb-email"></div>
+      <select id="cu-sel" onchange="setCurrentUser(this.value)" title="Who are you? Your notes are signed with this name" style="margin-top:6px;width:100%;font-size:11px;padding:3px 6px;border:1px solid var(--border);border-radius:5px;background:var(--surface);color:var(--text);cursor:pointer"></select>
     </div>
     <div class="sb-nav">
       <button class="sb-item" id="nav-dashboard" onclick="go('dashboard')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>Dashboard</button>
@@ -340,15 +341,19 @@ const SURL = 'https://ypfwecopdsielnouxwzv.supabase.co';
 const SKEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlwZndlY29wZHNpZWxub3V4d3p2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3NDMyNjgsImV4cCI6MjA5MTMxOTI2OH0.ll4Epk7es-knrgbG6j0e5xo59OEdMFwpxeWmMs9RfpU';
 const sb = supabase.createClient(SURL, SKEY);
 const PG = 250;
-const CRM_VERSION = '16'; // bump on each deploy; must match version.json
+const CRM_VERSION = '17'; // bump on each deploy; must match version.json
 // Columns derived from joins/arrays that can't be ordered server-side — rendered as non-clickable headers
 const NON_SORTABLE_COLS = new Set(['contact_name','contact_first','contact_last','contact_email','name_2','email_2','name_3','email_3','name_4','email_4']);
 // Display key -> real orderable customer column
 const SORT_COL_MAP = {ml_subscribed:'ml_any_subscribed', ml_groups:'ml_group_names', conflict:'conflict_kf_code'};
-const PIPELINE_STAGES = ['Prospect','Contacted','Sampling','Negotiating','Won','Lost'];
+// Pipeline stages, colours and team are hydrated from the DB at boot (loadPipelineConfig).
+// The literals below are the offline fallback if the config tables are unreachable.
+let PIPELINE_STAGES = ['Prospect','Contacted','Sampling','Negotiating','Won','Lost'];
 // Off-Pipeline = parked/not on the board. Never rendered as a column or loaded by the board fetch.
 const OFF_PIPELINE = 'Off-Pipeline';
-const STAGE_COLOURS = {Prospect:'#1d4ed8',Contacted:'#7c3aed',Sampling:'#0f766e',Negotiating:'#b45309',Won:'#15803d',Lost:'#dc2626','Off-Pipeline':'#94a3b8'};
+let STAGE_COLOURS = {Prospect:'#1d4ed8',Contacted:'#7c3aed',Sampling:'#0f766e',Negotiating:'#b45309',Won:'#15803d',Lost:'#dc2626','Off-Pipeline':'#94a3b8'};
+let STAGE_META = [];   // [{id,name,colour,sort_order,date_label}] full stage rows
+let TEAM = [];         // [{id,name,active,sort_order}] team members
 
 // ═══ STATE ═══
 let S = {
@@ -432,7 +437,8 @@ async function boot(){
   document.getElementById('auth-screen').hidden=true;
   document.getElementById('app').hidden=false;
   document.getElementById('sb-email').textContent=S.user.email;
-  await Promise.all([loadEtypes(),loadTags(),loadSettings(),loadColPrefs(),loadCampaigns()]);
+  await Promise.all([loadEtypes(),loadTags(),loadSettings(),loadColPrefs(),loadCampaigns(),loadPipelineConfig()]);
+  renderCurrentUserSel();
   // Sync camp: col labels with live campaign names, and prune deleted ones
   if(S.custCols){
     S.custCols=S.custCols.filter(c=>{
@@ -1024,6 +1030,139 @@ function toggleColVisible(i,val){
   saveColPrefs();
 }
 
+// ═══ PIPELINE CONFIG: stages, team, current user ═══
+function teamNames(){return TEAM.filter(m=>m.active).map(m=>m.name);}
+function stageMeta(name){return STAGE_META.find(s=>s.name===name)||null;}
+function currentUser(){return localStorage.getItem('crm_user')||'';}
+function setCurrentUser(n){localStorage.setItem('crm_user',n||'');const el=document.getElementById('cu-sel');if(el)el.value=n||'';}
+function renderCurrentUserSel(){
+  const el=document.getElementById('cu-sel');if(!el)return;
+  const cur=currentUser();
+  el.innerHTML='<option value="">— Who are you? —</option>'+teamNames().map(n=>`<option value="${x(n)}" ${n===cur?'selected':''}>${x(n)}</option>`).join('');
+}
+async function loadPipelineConfig(){
+  const[st,tm]=await Promise.all([
+    sb.from('pipeline_stages').select('*').order('sort_order'),
+    sb.from('team_members').select('*').order('sort_order')
+  ]);
+  if(st.data&&st.data.length){
+    STAGE_META=st.data;
+    PIPELINE_STAGES=st.data.map(s=>s.name);
+    STAGE_COLOURS={};st.data.forEach(s=>{STAGE_COLOURS[s.name]=s.colour;});
+    STAGE_COLOURS['Off-Pipeline']='#94a3b8';
+  }
+  if(tm.data)TEAM=tm.data;
+}
+
+// ── Settings: pipeline stages ──
+function stagesSettingsCard(){
+  const rows=STAGE_META.map((s,i)=>`
+    <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
+      <input type="color" value="${s.colour}" onchange="updateStage('${s.id}','colour',this.value)" style="width:30px;height:30px;border:none;background:none;cursor:pointer;padding:0;flex-shrink:0"/>
+      <input value="${x(s.name)}" onchange="updateStage('${s.id}','name',this.value)" style="flex:1;min-width:90px;font-size:13px;padding:5px 8px;border:1px solid var(--border);border-radius:5px;background:var(--surface);color:var(--text)"/>
+      <input value="${x(s.date_label||'')}" placeholder="Date field (optional)" onchange="updateStage('${s.id}','date_label',this.value)" title="If set, cards in this stage get a date field with this label" style="flex:1;min-width:120px;font-size:12px;padding:5px 8px;border:1px solid var(--border);border-radius:5px;background:var(--surface);color:var(--text)"/>
+      <button class="btn btn-xs" onclick="moveStageOrder('${s.id}',-1)" ${i===0?'disabled':''}>↑</button>
+      <button class="btn btn-xs" onclick="moveStageOrder('${s.id}',1)" ${i===STAGE_META.length-1?'disabled':''}>↓</button>
+      <button class="btn btn-xs" style="color:var(--red)" onclick="deleteStage('${s.id}')" title="Delete stage">✕</button>
+    </div>`).join('');
+  return `<div class="settings-card"><div class="settings-head">Pipeline Stages</div><div class="settings-body">
+    <div class="settings-note">The columns shown on the pipeline board, left to right. Set a colour, rename, reorder, or give a stage a date field (e.g. "Order date" on Ordered) which then shows on cards and the customer page. "Off-Pipeline" is reserved for parked customers and isn't listed here.</div>
+    <div style="margin-top:10px">${rows}</div>
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <input id="new-stage" placeholder="New stage name" style="flex:1;font-size:13px;padding:7px 10px;border:1px solid var(--border);border-radius:5px;background:var(--surface);color:var(--text)" onkeydown="if(event.key==='Enter')addStage()"/>
+      <button class="btn btn-primary btn-sm" onclick="addStage()">Add Stage</button>
+    </div></div></div>`;
+}
+async function addStage(){
+  const el=document.getElementById('new-stage');const name=(el?.value||'').trim();if(!name)return;
+  const maxOrder=STAGE_META.length?Math.max(...STAGE_META.map(s=>s.sort_order)):0;
+  const palette=['#1d4ed8','#7c3aed','#0f766e','#b45309','#4f46e5','#15803d','#dc2626','#db2777','#0891b2','#ca8a04'];
+  const{error}=await sb.from('pipeline_stages').insert({name,colour:palette[STAGE_META.length%palette.length],sort_order:maxOrder+1});
+  if(error){alert(error.message);return;}
+  await loadPipelineConfig();renderSettings();
+}
+async function updateStage(id,field,val){
+  const payload={};payload[field]=field==='date_label'?((val||'').trim()||null):(val||'').trim();
+  if(field==='name'&&!payload.name)return;
+  const{error}=await sb.from('pipeline_stages').update(payload).eq('id',id);
+  if(error){alert(error.message);return;}
+  await loadPipelineConfig();if(S.view==='settings')renderSettings();
+}
+async function deleteStage(id){
+  const s=STAGE_META.find(m=>m.id===id);if(!s)return;
+  if(!confirm(`Delete stage "${s.name}"?\n\nCustomers in this stage stay in the database but won't appear on the board until moved to another stage.`))return;
+  const{error}=await sb.from('pipeline_stages').delete().eq('id',id);
+  if(error){alert(error.message);return;}
+  await loadPipelineConfig();renderSettings();
+}
+async function moveStageOrder(id,dir){
+  const idx=STAGE_META.findIndex(s=>s.id===id);const swap=idx+dir;
+  if(idx<0||swap<0||swap>=STAGE_META.length)return;
+  const a=STAGE_META[idx],b=STAGE_META[swap];
+  await Promise.all([
+    sb.from('pipeline_stages').update({sort_order:b.sort_order}).eq('id',a.id),
+    sb.from('pipeline_stages').update({sort_order:a.sort_order}).eq('id',b.id)
+  ]);
+  await loadPipelineConfig();renderSettings();
+}
+
+// ── Settings: team members ──
+function teamSettingsCard(){
+  const rows=TEAM.map(m=>`
+    <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
+      <input value="${x(m.name)}" onchange="renameMember('${m.id}',this.value)" style="flex:1;font-size:13px;padding:5px 8px;border:1px solid var(--border);border-radius:5px;background:var(--surface);color:var(--text)"/>
+      <label style="font-size:12px;color:var(--text3);display:flex;align-items:center;gap:5px;white-space:nowrap"><input type="checkbox" ${m.active?'checked':''} onchange="toggleMember('${m.id}',this.checked)"/> active</label>
+      <button class="btn btn-xs" style="color:var(--red)" onclick="deleteMember('${m.id}')" title="Remove member">✕</button>
+    </div>`).join('');
+  return `<div class="settings-card"><div class="settings-head">Team Members</div><div class="settings-body">
+    <div class="settings-note">People who can own pipeline customers and sign notes. Untick "active" to hide someone from dropdowns without losing their name on past notes. Choose who you are using the selector at the bottom-left of the sidebar so notes are signed correctly.</div>
+    <div style="margin-top:10px">${rows}</div>
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <input id="new-member" placeholder="New team member name" style="flex:1;font-size:13px;padding:7px 10px;border:1px solid var(--border);border-radius:5px;background:var(--surface);color:var(--text)" onkeydown="if(event.key==='Enter')addMember()"/>
+      <button class="btn btn-primary btn-sm" onclick="addMember()">Add Member</button>
+    </div></div></div>`;
+}
+async function addMember(){
+  const el=document.getElementById('new-member');const name=(el?.value||'').trim();if(!name)return;
+  const maxOrder=TEAM.length?Math.max(...TEAM.map(m=>m.sort_order)):0;
+  const{error}=await sb.from('team_members').insert({name,sort_order:maxOrder+1});
+  if(error){alert(error.message);return;}
+  await loadPipelineConfig();renderCurrentUserSel();renderSettings();
+}
+async function renameMember(id,val){const name=(val||'').trim();if(!name)return;await sb.from('team_members').update({name}).eq('id',id);await loadPipelineConfig();renderCurrentUserSel();}
+async function toggleMember(id,active){await sb.from('team_members').update({active}).eq('id',id);await loadPipelineConfig();renderCurrentUserSel();}
+async function deleteMember(id){const m=TEAM.find(x=>x.id===id);if(!m)return;if(!confirm(`Remove team member "${m.name}"?\nExisting notes keep their name.`))return;await sb.from('team_members').delete().eq('id',id);await loadPipelineConfig();renderCurrentUserSel();renderSettings();}
+
+// ── Owner + stage date on a customer ──
+async function updateOwner(id,val){await sb.from('customers').update({owner:val||null}).eq('id',id);}
+async function updatePipelineDate(id,val){await sb.from('customers').update({pipeline_date:val||null}).eq('id',id);}
+
+// ── Attributed notes ──
+function notesCard(id,notes){
+  const rows=notes.length?notes.map(n=>`
+    <div style="padding:9px 16px;border-bottom:1px solid var(--border)">
+      <div style="font-size:13px;white-space:pre-wrap;line-height:1.5">${x(n.note)}</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:4px"><strong>${x(n.author||'Unknown')}</strong> · ${fdt(n.created_at)}</div>
+    </div>`).join(''):'<div style="padding:12px 16px;font-size:12px;color:var(--text3)">No notes yet.</div>';
+  const who=currentUser();
+  return `<div class="detail-card">
+    <div class="dcard-head"><span class="dcard-title">Notes (${notes.length})</span></div>
+    ${rows}
+    <div style="padding:10px 16px;border-top:1px solid var(--border)">
+      <textarea id="new-note" rows="2" placeholder="Add a note…" style="width:100%;font-size:13px;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);resize:vertical;font-family:var(--f);box-sizing:border-box"></textarea>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-top:6px;gap:8px">
+        <span style="font-size:11px;color:var(--text3)">Signed as <strong>${who?x(who):'— pick who you are, bottom-left'}</strong></span>
+        <button class="btn btn-primary btn-sm" onclick="addNote('${id}')">Add Note</button>
+      </div>
+    </div></div>`;
+}
+async function addNote(id){
+  const el=document.getElementById('new-note');const note=(el?.value||'').trim();if(!note)return;
+  const{error}=await sb.from('pipeline_notes').insert({customer_id:id,note,author:currentUser()||'Unknown'});
+  if(error){alert(error.message);return;}
+  go('customer-detail',{id});
+}
+
 async function loadCampaigns(){
   const[campRes,countRes]=await Promise.all([
     sb.from('campaigns').select('id,name,description,created_at').not('name','is',null).order('created_at'),
@@ -1214,12 +1353,13 @@ async function custCSV(){
   a.download='customers_'+new Date().toISOString().split('T')[0]+'.csv';a.click();
 }
 async function renderCustomerDetail(id){
-  const[cr,conr,evr,tkr,campr]=await Promise.all([
+  const[cr,conr,evr,tkr,campr,notr]=await Promise.all([
     sb.from('customers').select('*').eq('id',id).single(),
     sb.from('contacts').select('*').eq('customer_id',id).order('is_primary',{ascending:false}),
     sb.from('events').select('*').eq('customer_id',id).order('occurred_at',{ascending:false}).limit(200),
     sb.from('tasks').select('*').eq('customer_id',id).order('due_date').limit(50),
     sb.from('campaign_customers').select('campaign_id,notes,activated_at').eq('customer_id',id).order('activated_at',{ascending:false}),
+    sb.from('pipeline_notes').select('*').eq('customer_id',id).order('created_at',{ascending:false}),
   ]);
   const c=cr.data;if(!c){setPage('<p style="padding:20px;color:var(--text3)">Customer not found.</p>');return;}
   setTitle(c.company_name);
@@ -1227,6 +1367,7 @@ async function renderCustomerDetail(id){
   setActions('');
   const contacts=conr.data||[];const events=evr.data||[];const tasks=tkr.data||[];
   const campParticipation=campr.data||[];
+  const notes=notr.data||[];
   const pipeStage=c.pipeline_stage||'';
   setPage(`
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap">
@@ -1251,6 +1392,11 @@ async function renderCustomerDetail(id){
             ${PIPELINE_STAGES.map(s=>`<option value="${s}" ${pipeStage===s?'selected':''}>${s}</option>`).join('')}
             <option value="Off-Pipeline" ${pipeStage==='Off-Pipeline'?'selected':''}>Off-Pipeline</option>
           </select>`)}
+          ${dr('Owner',`<select onchange="updateOwner('${id}',this.value)" style="border:1px solid var(--border);border-radius:5px;padding:3px 8px;font-size:12px;font-family:var(--f);background:var(--surface);color:var(--text);outline:none">
+            <option value="">— Unassigned —</option>
+            ${teamNames().map(n=>`<option value="${x(n)}" ${c.owner===n?'selected':''}>${x(n)}</option>`).join('')}
+          </select>`)}
+          ${(()=>{const sm=stageMeta(pipeStage);return sm&&sm.date_label?dr(x(sm.date_label),`<input type="date" value="${c.pipeline_date||''}" onchange="updatePipelineDate('${id}',this.value)" style="border:1px solid var(--border);border-radius:5px;padding:3px 8px;font-size:12px;font-family:var(--f);background:var(--surface);color:var(--text);outline:none"/>`):'';})()}
           ${dr('Store Type',c.store_type?`<span class="tag-chip">${x(c.store_type)}</span>`:'—')}
           ${dr('Source',c.source?x(c.source):'—')}
           ${c.website?dr('Website',`<a href="${x(c.website)}" target="_blank" style="color:var(--blue);font-size:12px">${x(c.website)}</a>`):''}
@@ -1267,6 +1413,8 @@ async function renderCustomerDetail(id){
           ${c.customer_notes?dr('Int. Notes',`<span style="white-space:pre-wrap;font-size:12px;color:var(--text2)">${x(c.customer_notes).replace(/\[/g,'').replace(/\]/g,'')}</span>`):''}
           ${c.notes?dr('CRM Notes',`<span style="white-space:pre-wrap;font-size:12px;color:var(--text2)">${x(c.notes).replace(/\[/g,'').replace(/\]/g,'')}</span>`):''}
         </div>
+
+        ${notesCard(id,notes)}
 
         ${S.campaigns.length?(()=>{
           const cpRows=campParticipation.map(cp=>{
@@ -1359,7 +1507,7 @@ async function updatePipelineStage(id,stage){
 async function renderPipeline(){
   const mc=document.getElementById('main-content');
   mc.innerHTML='<div class="loading-page"><span class="spinner"></span> Loading pipeline…</div>';
-  const{data}=await sb.from('customers').select('id,company_name,status,all_time_spend,pipeline_stage,country_name,store_type,last_order_date').in('pipeline_stage',PIPELINE_STAGES).order('company_name');
+  const{data}=await sb.from('customers').select('id,company_name,status,all_time_spend,pipeline_stage,country_name,store_type,last_order_date,owner,pipeline_date').in('pipeline_stage',PIPELINE_STAGES).order('company_name');
   const byStage={};
   PIPELINE_STAGES.forEach(s=>{byStage[s]=[];});
   (data||[]).forEach(c=>{if(byStage[c.pipeline_stage])byStage[c.pipeline_stage].push(c);});
@@ -1375,6 +1523,8 @@ async function renderPipeline(){
         +(c.store_type?'<span style="color:var(--text3);font-size:11px">'+x(c.store_type)+'</span>':'')
         +(c.all_time_spend?'<span class="kcard-spend">£'+N2(c.all_time_spend)+'</span>':'')
         +(c.last_order_date?'<span style="color:var(--text3);font-size:11px">Last: '+fd(c.last_order_date)+'</span>':'')
+        +(c.owner?'<span style="color:var(--text2);font-size:11px">👤 '+x(c.owner)+'</span>':'')
+        +(c.pipeline_date?'<span style="color:var(--text2);font-size:11px">📅 '+fd(c.pipeline_date)+'</span>':'')
         +'</div><div class="kcard-move" onclick="event.stopPropagation()">'+mv
         +'<button onclick="moveStage(\''+c.id+'\',\'Off-Pipeline\',event)" style="color:var(--red)">⊘ Off-Pipeline</button></div></div>';
     }).join(''):'<div class="kanban-empty">No customers</div>';
@@ -1392,6 +1542,7 @@ async function renderPipeline(){
     +'<div id="pipe-results" style="position:absolute;top:calc(100% + 4px);left:0;right:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);max-height:220px;overflow-y:auto;display:none;z-index:100;box-shadow:var(--sh-lg)"></div>'
     +'</div>'
     +'<select id="pipe-stage-sel" class="f-input" style="width:180px;padding:7px 12px">'+stageOpts+'</select>'
+    +'<select id="pipe-owner-sel" class="f-input" style="width:160px;padding:7px 12px"><option value="">— Owner —</option>'+teamNames().map(n=>'<option value="'+x(n)+'">'+x(n)+'</option>').join('')+'</select>'
     +'<button class="btn btn-primary btn-sm" onclick="pipeAddSelected()">Add to Pipeline</button>'
     +'<span id="pipe-msg" style="font-size:12px;color:var(--green)"></span>'
     +'</div><input type="hidden" id="pipe-sel-id" value=""/></div>'
@@ -1426,9 +1577,10 @@ function pipeSelect(id,name){
 async function pipeAddSelected(){
   const id=document.getElementById('pipe-sel-id').value;
   const stage=document.getElementById('pipe-stage-sel').value;
+  const owner=document.getElementById('pipe-owner-sel')?.value||null;
   const msg=document.getElementById('pipe-msg');
   if(!id){msg.textContent='Please select a customer first';msg.style.color='var(--red)';setTimeout(()=>{msg.textContent='';msg.style.color='var(--green)';},2000);return;}
-  await sb.from('customers').update({pipeline_stage:stage}).eq('id',id);
+  await sb.from('customers').update({pipeline_stage:stage,owner:owner}).eq('id',id);
   document.getElementById('pipe-search').value='';
   document.getElementById('pipe-sel-id').value='';
   msg.textContent='Added!';
@@ -2112,6 +2264,8 @@ function mlActivityTitle(act){
 function renderSettings(){
   setPage(`
     <div>
+      ${stagesSettingsCard()}
+      ${teamSettingsCard()}
       <div class="settings-card">
         <div class="settings-head">Update Customers (Claude Routine)</div>
         <div class="settings-body">
@@ -2906,6 +3060,10 @@ async function showAddEditCustomer(id){
       <div><label class="f-label">All-time Spend (£)</label><input class="f-input" type="number" id="ac-spend" value="${c?.all_time_spend||''}"/></div>
     </div>
     <div class="form-row" style="margin-top:12px">
+      <div><label class="f-label">Owner</label><select class="f-input" id="ac-owner"><option value="">— Unassigned —</option>${teamNames().map(n=>`<option value="${x(n)}" ${c?.owner===n?'selected':''}>${x(n)}</option>`).join('')}</select></div>
+      <div></div>
+    </div>
+    <div class="form-row" style="margin-top:12px">
       <div><label class="f-label">Phone</label><input class="f-input" id="ac-phone" value="${x(c?.phone||'')}"/></div>
       <div><label class="f-label">Mobile</label><input class="f-input" id="ac-mobile" value="${x(c?.mobile||'')}"/></div>
     </div>
@@ -2933,7 +3091,7 @@ async function saveCustomer(id){
   if(!name){err.textContent='Company name is required.';return;}
   err.textContent='';
   const gv=id=>document.getElementById(id)?.value?.trim()||null;
-  const payload={company_name:name,kf_code:gv('ac-kf'),status:document.getElementById('ac-status').value,country_name:gv('ac-country'),notes:gv('ac-notes'),pipeline_stage:document.getElementById('ac-pipe').value||null,phone:gv('ac-phone'),mobile:gv('ac-mobile'),source:gv('ac-source'),store_type:gv('ac-store-type'),address_1:gv('ac-addr1'),address_2:gv('ac-addr2'),postcode:gv('ac-postcode'),website:gv('ac-website')};
+  const payload={company_name:name,kf_code:gv('ac-kf'),status:document.getElementById('ac-status').value,country_name:gv('ac-country'),notes:gv('ac-notes'),pipeline_stage:document.getElementById('ac-pipe').value||null,owner:document.getElementById('ac-owner')?.value||null,phone:gv('ac-phone'),mobile:gv('ac-mobile'),source:gv('ac-source'),store_type:gv('ac-store-type'),address_1:gv('ac-addr1'),address_2:gv('ac-addr2'),postcode:gv('ac-postcode'),website:gv('ac-website')};
   const spend=document.getElementById('ac-spend')?.value;if(spend)payload.all_time_spend=parseFloat(spend);
   const{error}=id?await sb.from('customers').update(payload).eq('id',id):await sb.from('customers').insert(payload);
   if(error){err.textContent=error.message;return;}
