@@ -341,7 +341,7 @@ const SURL = 'https://ypfwecopdsielnouxwzv.supabase.co';
 const SKEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlwZndlY29wZHNpZWxub3V4d3p2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3NDMyNjgsImV4cCI6MjA5MTMxOTI2OH0.ll4Epk7es-knrgbG6j0e5xo59OEdMFwpxeWmMs9RfpU';
 const sb = supabase.createClient(SURL, SKEY);
 const PG = 250;
-const CRM_VERSION = '17'; // bump on each deploy; must match version.json
+const CRM_VERSION = '18'; // bump on each deploy; must match version.json
 // Columns derived from joins/arrays that can't be ordered server-side — rendered as non-clickable headers
 const NON_SORTABLE_COLS = new Set(['contact_name','contact_first','contact_last','contact_email','name_2','email_2','name_3','email_3','name_4','email_4']);
 // Display key -> real orderable customer column
@@ -1508,6 +1508,12 @@ async function renderPipeline(){
   const mc=document.getElementById('main-content');
   mc.innerHTML='<div class="loading-page"><span class="spinner"></span> Loading pipeline…</div>';
   const{data}=await sb.from('customers').select('id,company_name,status,all_time_spend,pipeline_stage,country_name,store_type,last_order_date,owner,pipeline_date').in('pipeline_stage',PIPELINE_STAGES).order('company_name');
+  const ids=(data||[]).map(c=>c.id);
+  const notesByCust={};
+  if(ids.length){
+    const{data:nd}=await sb.from('pipeline_notes').select('*').in('customer_id',ids).order('created_at',{ascending:false});
+    (nd||[]).forEach(n=>{(notesByCust[n.customer_id]=notesByCust[n.customer_id]||[]).push(n);});
+  }
   const byStage={};
   PIPELINE_STAGES.forEach(s=>{byStage[s]=[];});
   (data||[]).forEach(c=>{if(byStage[c.pipeline_stage])byStage[c.pipeline_stage].push(c);});
@@ -1517,6 +1523,9 @@ async function renderPipeline(){
     const col=STAGE_COLOURS[stage]||'#94a3b8';
     const cardHtml=cards.length?cards.map(c=>{
       const mv=PIPELINE_STAGES.filter(s=>s!==stage).map(s=>'<button onclick="moveStage(\''+c.id+'\',\''+s+'\',event)">'+(s==='Won'?'✓ Won':s==='Lost'?'✕ Lost':'→ '+s)+'</button>').join('');
+      const cnotes=notesByCust[c.id]||[];
+      const ncount=cnotes.length;
+      const notesInner=ncount?cnotes.map(n=>'<div style="padding:6px 9px;border-bottom:1px solid var(--border)"><div style="font-size:12px;white-space:pre-wrap;line-height:1.45">'+x(n.note)+'</div><div style="font-size:10px;color:var(--text3);margin-top:3px"><strong>'+x(n.author||'Unknown')+'</strong> · '+fdt(n.created_at)+'</div></div>').join(''):'<div style="padding:6px 9px;font-size:11px;color:var(--text3)">No notes yet.</div>';
       return '<div class="kcard" onclick="go(\'customer-detail\',{id:\''+c.id+'\'})">'
         +'<div class="kcard-name">'+x(c.company_name)+'</div>'
         +'<div class="kcard-meta">'
@@ -1525,7 +1534,17 @@ async function renderPipeline(){
         +(c.last_order_date?'<span style="color:var(--text3);font-size:11px">Last: '+fd(c.last_order_date)+'</span>':'')
         +(c.owner?'<span style="color:var(--text2);font-size:11px">👤 '+x(c.owner)+'</span>':'')
         +(c.pipeline_date?'<span style="color:var(--text2);font-size:11px">📅 '+fd(c.pipeline_date)+'</span>':'')
-        +'</div><div class="kcard-move" onclick="event.stopPropagation()">'+mv
+        +'</div>'
+        +'<div onclick="event.stopPropagation()" style="margin-top:6px">'
+        +'<button onclick="toggleCardNotes(\''+c.id+'\',event)" title="Show/hide notes" style="background:none;border:none;cursor:pointer;color:'+(ncount?'var(--blue)':'var(--text3)')+';font-size:11px;font-weight:600;padding:0;display:inline-flex;align-items:center;gap:4px">💬 '+ncount+'</button>'
+        +'</div>'
+        +'<div id="cnotes-'+c.id+'" onclick="event.stopPropagation()" style="display:none;margin-top:6px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);max-height:230px;overflow-y:auto">'
+        +notesInner
+        +'<div style="padding:6px 9px;border-top:1px solid var(--border);background:var(--surface)">'
+        +'<textarea id="cnote-in-'+c.id+'" rows="2" placeholder="Add a note…" style="width:100%;font-size:12px;padding:6px;border:1px solid var(--border);border-radius:5px;background:var(--surface);color:var(--text);resize:vertical;font-family:var(--f);box-sizing:border-box"></textarea>'
+        +'<div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px"><span style="font-size:10px;color:var(--text3)">'+(currentUser()?x(currentUser()):'set your name ↙')+'</span><button class="btn btn-xs btn-primary" onclick="addCardNote(\''+c.id+'\',event)">Add</button></div>'
+        +'</div></div>'
+        +'<div class="kcard-move" onclick="event.stopPropagation()">'+mv
         +'<button onclick="moveStage(\''+c.id+'\',\'Off-Pipeline\',event)" style="color:var(--red)">⊘ Off-Pipeline</button></div></div>';
     }).join(''):'<div class="kanban-empty">No customers</div>';
     return '<div class="kanban-col">'
@@ -1592,6 +1611,20 @@ async function moveStage(custId,stage,event){
   event.stopPropagation();
   await sb.from('customers').update({pipeline_stage:stage||null}).eq('id',custId);
   renderPipeline();
+}
+function toggleCardNotes(id,event){
+  event.stopPropagation();
+  const el=document.getElementById('cnotes-'+id);
+  if(el)el.style.display=el.style.display==='none'?'block':'none';
+}
+async function addCardNote(id,event){
+  event.stopPropagation();
+  const el=document.getElementById('cnote-in-'+id);
+  const note=(el?.value||'').trim();if(!note)return;
+  const{error}=await sb.from('pipeline_notes').insert({customer_id:id,note,author:currentUser()||'Unknown'});
+  if(error){alert(error.message);return;}
+  await renderPipeline();
+  const p=document.getElementById('cnotes-'+id);if(p)p.style.display='block';
 }
 
 // ═══ TASKS ═══
