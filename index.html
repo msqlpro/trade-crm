@@ -314,7 +314,7 @@ tbody tr{transition:background .1s}tbody tr:hover{background:var(--surface2);cur
     <div id="updateBanner" class="update-banner" style="display:none;background:#c93a1a;color:#ffffff" onclick="applyUpdate()"><span style="font-size:15px;color:#ffffff">⟳</span><span style="color:#ffffff;font-weight:600">A new version is available — <u style="color:#ffffff">click here to refresh</u></span></div>
     <div class="topbar">
       <div class="topbar-title" id="tb-title">Dashboard</div>
-      <div class="topbar-version" title="CRM build version">v15 · 31 May 26</div>
+      <div class="topbar-version" id="topbar-version" title="CRM build version"></div>
       <div class="topbar-sub" id="tb-sub"></div>
       <div class="topbar-right" id="tb-actions"></div>
     </div>
@@ -340,7 +340,8 @@ const SURL = 'https://ypfwecopdsielnouxwzv.supabase.co';
 const SKEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlwZndlY29wZHNpZWxub3V4d3p2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3NDMyNjgsImV4cCI6MjA5MTMxOTI2OH0.ll4Epk7es-knrgbG6j0e5xo59OEdMFwpxeWmMs9RfpU';
 const sb = supabase.createClient(SURL, SKEY);
 const PG = 250;
-const CRM_VERSION = '25'; // bump on each deploy; must match version.json
+const CRM_VERSION = '26'; // bump on each deploy; must match version.json
+const BUILD_DATE = '25 Jun 26'; // shown in the top-bar version label
 // Columns derived from joins/arrays that can't be ordered server-side — rendered as non-clickable headers
 const NON_SORTABLE_COLS = new Set(['contact_name','contact_first','contact_last','contact_email','name_2','email_2','name_3','email_3','name_4','email_4']);
 // Display key -> real orderable customer column
@@ -436,6 +437,7 @@ async function boot(){
   document.getElementById('auth-screen').hidden=true;
   document.getElementById('app').hidden=false;
   document.getElementById('sb-email').textContent=S.user.email;
+  { const tv=document.getElementById('topbar-version'); if(tv) tv.textContent='v'+CRM_VERSION+' · '+BUILD_DATE; }
   await Promise.all([loadEtypes(),loadTags(),loadSettings(),loadColPrefs(),loadCampaigns(),loadPipelineConfig()]);
   renderCurrentUserSel();
   // Sync camp: col labels with live campaign names, and prune deleted ones
