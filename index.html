@@ -340,7 +340,7 @@ const SURL = 'https://ypfwecopdsielnouxwzv.supabase.co';
 const SKEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlwZndlY29wZHNpZWxub3V4d3p2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3NDMyNjgsImV4cCI6MjA5MTMxOTI2OH0.ll4Epk7es-knrgbG6j0e5xo59OEdMFwpxeWmMs9RfpU';
 const sb = supabase.createClient(SURL, SKEY);
 const PG = 250;
-const CRM_VERSION = '26'; // bump on each deploy; must match version.json
+const CRM_VERSION = '27'; // bump on each deploy; must match version.json
 const BUILD_DATE = '25 Jun 26'; // shown in the top-bar version label
 // Columns derived from joins/arrays that can't be ordered server-side — rendered as non-clickable headers
 const NON_SORTABLE_COLS = new Set(['contact_name','contact_first','contact_last','contact_email','name_2','email_2','name_3','email_3','name_4','email_4']);
@@ -1360,6 +1360,7 @@ async function renderCustomerDetail(id){
         ${c.hidden?'Restore':'Hide'}
       </button>
       <button class="btn btn-primary btn-sm" onclick="showAddEditCustomer('${id}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Edit</button>
+      <button class="btn btn-sm" style="color:var(--red);border-color:var(--red)" onclick="deleteCustomer('${id}')" title="Permanently delete this customer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg> Delete</button>
     </div>
     <div id="ml-status"></div>
     <div style="display:grid;grid-template-columns:minmax(320px,600px) 1fr;gap:16px;align-items:start">
@@ -1460,6 +1461,17 @@ function dr(k,v){return`<div class="drow"><div class="dkey">${k}</div><div class
 async function toggleHideCustomer(id,currentlyHidden){
   await sb.from('customers').update({hidden:!currentlyHidden}).eq('id',id);
   go('customer-detail',{id});
+}
+async function deleteCustomer(id){
+  const{data:c}=await sb.from('customers').select('company_name,kf_customer_id').eq('id',id).single();
+  if(!c)return;
+  let msg='Permanently delete "'+(c.company_name||'this customer')+'"?\n\nThis also removes their contacts, activity, notes and campaign links, and cannot be undone.';
+  if(c.kf_customer_id) msg+='\n\n\u26a0 This record is synced from KashFlow, so it will likely reappear on the next "Update Customers" run. For KashFlow customers, use Hide instead.';
+  if(!confirm(msg))return;
+  const{error}=await sb.from('customers').delete().eq('id',id);
+  if(error){alert('Delete failed: '+error.message);return;}
+  refreshCounts();
+  go('customers');
 }
 async function updatePipelineStage(id,stage){
   await sb.from('customers').update({pipeline_stage:stage||null}).eq('id',id);
