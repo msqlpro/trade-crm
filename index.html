@@ -300,7 +300,6 @@ tbody tr{transition:background .1s}tbody tr:hover{background:var(--surface2);cur
       <button class="sb-item" id="nav-customers" onclick="go('customers')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>Customers<span class="sb-badge" id="sb-cc"></span></button>
       <button class="sb-item" id="nav-pipeline" onclick="go('pipeline')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="4" height="18" rx="1"/><rect x="10" y="8" width="4" height="13" rx="1"/><rect x="17" y="5" width="4" height="16" rx="1"/></svg>Pipeline</button>
       <button class="sb-item" id="nav-campaigns" onclick="go('campaigns')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>Campaigns</button>
-      <button class="sb-item" id="nav-tasks" onclick="go('tasks')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>Tasks<span class="sb-badge" id="sb-tc"></span></button>
       <div class="sb-divider"></div>
       <button class="sb-item" id="nav-import" onclick="go('import')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>Import Customers</button>
       <button class="sb-item" id="nav-import-activity" onclick="go('import-activity')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>Import Activities</button>
@@ -341,7 +340,7 @@ const SURL = 'https://ypfwecopdsielnouxwzv.supabase.co';
 const SKEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlwZndlY29wZHNpZWxub3V4d3p2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3NDMyNjgsImV4cCI6MjA5MTMxOTI2OH0.ll4Epk7es-knrgbG6j0e5xo59OEdMFwpxeWmMs9RfpU';
 const sb = supabase.createClient(SURL, SKEY);
 const PG = 250;
-const CRM_VERSION = '23'; // bump on each deploy; must match version.json
+const CRM_VERSION = '24'; // bump on each deploy; must match version.json
 // Columns derived from joins/arrays that can't be ordered server-side — rendered as non-clickable headers
 const NON_SORTABLE_COLS = new Set(['contact_name','contact_first','contact_last','contact_email','name_2','email_2','name_3','email_3','name_4','email_4']);
 // Display key -> real orderable customer column
@@ -488,12 +487,8 @@ async function saveColPrefs(){
   await sb.from('user_profiles').upsert({id:S.user.id,column_prefs:prefs});
 }
 async function refreshCounts(){
-  const[r1,r2]=await Promise.all([
-    sb.from('customers').select('*',{count:'exact',head:true}),
-    sb.from('tasks').select('*',{count:'exact',head:true}).eq('status','open')
-  ]);
-  const cc=document.getElementById('sb-cc');if(cc&&r1.count!=null)cc.textContent=r1.count.toLocaleString();
-  const tc=document.getElementById('sb-tc');if(tc)tc.textContent=r2.count>0?r2.count:'';
+  const{count}=await sb.from('customers').select('*',{count:'exact',head:true});
+  const cc=document.getElementById('sb-cc');if(cc&&count!=null)cc.textContent=count.toLocaleString();
 }
 
 // ═══ AUTH ═══
@@ -538,11 +533,6 @@ function go(view,params={}){
     mc.className='page-kanban';
     renderPipeline();
   }
-  else if(view==='tasks'){
-    setTitle('Tasks');
-    setActions(`<button class="btn btn-primary btn-sm" onclick="showAddTask(null)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add Task</button>`);
-    renderTasks();
-  }
   else if(view==='import'){setTitle('Import Centre');renderImport();}
   else if(view==='import-activity'){setTitle('Import Activities');renderImportActivity();}
   else if(view==='campaigns'){setTitle('Campaigns');renderCampaigns();}
@@ -562,12 +552,11 @@ function setPage(h,cls='page'){const el=document.getElementById('main-content');
 async function renderDashboard(){
   const today=new Date().toISOString().split('T')[0];
   const ninety=new Date(Date.now()-90*864e5).toISOString();
-  const[r1,r2,r3,r4,r5,r6,r7]=await Promise.all([
+  const[r1,r2,r3,r4,r6,r7]=await Promise.all([
     sb.from('customers').select('*',{count:'exact',head:true}),
     sb.from('customers').select('*',{count:'exact',head:true}).eq('status','active'),
     sb.from('customers').select('*',{count:'exact',head:true}).eq('status','prospect'),
     sb.from('customers').select('*',{count:'exact',head:true}).lt('last_order_date', new Date(Date.now()-180*864e5).toISOString().split('T')[0]),
-    sb.from('tasks').select('*,customers(id,company_name)').in('status',['open','in_progress']).lte('due_date',today).order('due_date').limit(12),
     sb.from('events').select('*,customers(id,company_name)').order('occurred_at',{ascending:false}).limit(15),
     sb.from('customers').select('id,company_name,last_order_date,status').eq('status','active').lt('last_order_date',ninety).order('last_order_date').limit(8),
   ]);
@@ -607,15 +596,6 @@ async function renderDashboard(){
       <div class="stat-card"><div class="stat-n" style="color:var(--red)">${n(r4.count)}</div><div class="stat-l">At Risk</div></div>
     </div>
     <div class="dash-grid">
-      <div class="dash-card">
-        <div class="dash-head">Overdue Tasks <span class="sb-badge">${r5.data?.length||0}</span></div>
-        <div class="dash-body">${r5.data?.length?r5.data.map(t=>`
-          <div class="task-item">
-            <div class="task-check" onclick="toggleTask('${t.id}',this,null)"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
-            <div><div class="task-title">${x(t.title)}</div>
-            <div class="task-meta">${t.customers?`<span class="task-co" onclick="go('customer-detail',{id:'${t.customers.id}'})">${x(t.customers.company_name)}</span>`:''}<span class="${past(t.due_date)?'task-overdue':''}">Due ${fd(t.due_date)}</span></div></div>
-          </div>`).join(''):'<div class="dash-empty">No overdue tasks 🎉</div>'}</div>
-      </div>
       <div class="dash-card">
         <div class="dash-head">Recent Activity</div>
         <div class="dash-body">${r6.data?.length?r6.data.map(e=>{
@@ -1353,11 +1333,10 @@ async function custCSV(){
   a.download='customers_'+new Date().toISOString().split('T')[0]+'.csv';a.click();
 }
 async function renderCustomerDetail(id){
-  const[cr,conr,evr,tkr,campr,notr]=await Promise.all([
+  const[cr,conr,evr,campr,notr]=await Promise.all([
     sb.from('customers').select('*').eq('id',id).single(),
     sb.from('contacts').select('*').eq('customer_id',id).order('is_primary',{ascending:false}),
     sb.from('events').select('*').eq('customer_id',id).order('occurred_at',{ascending:false}).limit(200),
-    sb.from('tasks').select('*').eq('customer_id',id).order('due_date').limit(50),
     sb.from('campaign_customers').select('campaign_id,notes,activated_at').eq('customer_id',id).order('activated_at',{ascending:false}),
     sb.from('pipeline_notes').select('*').eq('customer_id',id).order('created_at',{ascending:false}),
   ]);
@@ -1365,7 +1344,7 @@ async function renderCustomerDetail(id){
   setTitle(c.company_name);
   document.getElementById('tb-sub').textContent=c.kf_code?'· '+c.kf_code:'';
   setActions('');
-  const contacts=conr.data||[];const events=evr.data||[];const tasks=tkr.data||[];
+  const contacts=conr.data||[];const events=evr.data||[];
   const campParticipation=campr.data||[];
   const notes=notr.data||[];
   const pipeStage=c.pipeline_stage||'';
@@ -1373,7 +1352,6 @@ async function renderCustomerDetail(id){
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap">
       <button class="back-btn" style="margin-bottom:0" onclick="go('customers')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>Back to customers</button>
       <button class="btn btn-sm" onclick="showLogEvent('${id}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg> Log Activity</button>
-      <button class="btn btn-sm" onclick="showAddTask('${id}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg> Task</button>
       ${S.mlKey?`<button class="btn btn-sm btn-teal" onclick="syncMailerLite('${id}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> ML Sync</button>`:''}
       <button class="btn btn-sm ${c.hidden?'btn-amber':''}" onclick="toggleHideCustomer('${id}',${c.hidden})" title="${c.hidden?'Restore to view':'Exclude from view'}">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px">${c.hidden?'<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/>':'<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>'}</svg>
@@ -1448,23 +1426,6 @@ async function renderCustomerDetail(id){
                 ${ct.phone?`<div class="contact-meta">${x(ct.phone)}</div>`:''}
               </div>
             </div>`).join(''):'<div style="padding:14px 16px;text-align:center;color:var(--text3);font-size:13px">No contacts yet</div>'}
-        </div>
-
-        <div class="detail-card">
-          <div class="dcard-head"><span class="dcard-title">Tasks (${tasks.length})</span><button class="btn btn-xs" onclick="showAddTask('${id}')">+ Add</button></div>
-          ${tasks.length?tasks.map(t=>`
-            <div class="task-item">
-              <div class="task-check ${t.status==='done'?'done':''}" onclick="toggleTask('${t.id}',this,'${id}')"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
-              <div class="task-content">
-                <div class="task-title ${t.status==='done'?'done':''}">${x(t.title)}</div>
-                <div class="task-meta">
-                  ${t.due_date?`<span class="${past(t.due_date)&&t.status!=='done'?'task-overdue':''}">Due ${fd(t.due_date)}</span>`:''}
-                  <span class="badge badge-${t.status}" style="font-size:10px">${t.status.replace('_',' ')}</span>
-                  <span class="badge badge-${t.priority||'normal'} priority-badge" style="font-size:10px" onclick="togglePriority('${t.id}','${t.priority||'normal'}')" title="Click to toggle priority">${t.priority==='urgent'?'🔴 urgent':'normal'}</span>
-                </div>
-              </div>
-              <button class="btn btn-xs" onclick="showEditTask('${t.id}')" title="Edit task" style="flex-shrink:0;align-self:flex-start">✎</button>
-            </div>`).join(''):'<div style="padding:14px;text-align:center;color:var(--text3);font-size:13px">No tasks</div>'}
         </div>
       </div>
 
@@ -1632,53 +1593,6 @@ async function addCardNote(id,event){
   if(error){alert(error.message);return;}
   await renderPipeline();
   const p=document.getElementById('cnotes-'+id);if(p)p.style.display='block';
-}
-
-// ═══ TASKS ═══
-function renderTaskItem(t){
-  return `<div class="task-item" id="task-${t.id}">
-    <div class="task-check ${t.status==='done'?'done':''}" onclick="toggleTask('${t.id}',this,null)"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
-    <div class="task-content" style="flex:1">
-      <div class="task-title ${t.status==='done'?'done':''}">${x(t.title)}</div>
-      <div class="task-meta">
-        ${t.customers?`<span class="task-co" onclick="go('customer-detail',{id:'${t.customers.id}'})">${x(t.customers.company_name)}</span>`:''}
-        ${t.due_date?`<span class="${past(t.due_date)&&t.status!=='done'?'task-overdue':''}">Due ${fd(t.due_date)}</span>`:''}
-        <span class="badge badge-${t.status}" style="font-size:10px">${t.status.replace('_',' ')}</span>
-        <span class="badge badge-${t.priority||'normal'} priority-badge" style="font-size:10px" onclick="togglePriority('${t.id}','${t.priority||'normal'}')" title="Click to toggle priority">${t.priority==='urgent'?'🔴 urgent':'normal'}</span>
-      </div>
-    </div>
-    <button class="btn btn-xs" onclick="showEditTask('${t.id}')" title="Edit task" style="flex-shrink:0;align-self:flex-start">✎</button>
-  </div>`;
-}
-
-async function renderTasks(){
-  let q=sb.from('tasks').select('*,customers(id,company_name)',{count:'exact'});
-  if(S.taskFilter!=='all')q=q.eq('status',S.taskFilter);
-  q=q.order('due_date').limit(200);
-  const{data,count}=await q;
-  const urgent=(data||[]).filter(t=>t.priority==='urgent');
-  const normal=(data||[]).filter(t=>t.priority!=='urgent');
-  const urgentHtml=urgent.length?`<div class="task-section-head">🔴 Urgent (${urgent.length})</div>${urgent.map(renderTaskItem).join('')}`:'';
-  const normalHtml=normal.length?`${urgent.length?'<div class="task-section-head">Normal ('+normal.length+')</div>':''}${normal.map(renderTaskItem).join('')}`:'';
-  setPage(`
-    <div class="toolbar">
-      <div class="pills">
-        ${['open','in_progress','done','all'].map(f=>`<button class="pill ${S.taskFilter===f?'on':''}" onclick="taskFilter('${f}')">${f.replace('_',' ')}</button>`).join('')}
-      </div>
-      <div class="spacer"></div>
-      <span style="font-size:12px;color:var(--text3)">${count||0} tasks</span>
-    </div>
-    <div class="table-wrap">
-      ${!data?.length?'<div class="no-results">No tasks found</div>':urgentHtml+normalHtml}
-    </div>
-  `);
-}
-function taskFilter(f){S.taskFilter=f;renderTasks();}
-
-async function togglePriority(taskId, current){
-  const next=current==='urgent'?'normal':'urgent';
-  await sb.from('tasks').update({priority:next}).eq('id',taskId);
-  renderTasks();
 }
 
 // ═══ IMPORT CENTRE ═══
@@ -3305,92 +3219,6 @@ async function saveContact(custId){
   const{error}=await sb.from('contacts').insert({customer_id:custId,first_name:first||null,last_name:last||null,email:document.getElementById('ct-email').value.trim()||null,phone:document.getElementById('ct-phone').value.trim()||null,role:document.getElementById('ct-role').value.trim()||null,is_primary:document.getElementById('ct-primary').checked});
   if(error){err.textContent=error.message;return;}
   closeModal();go('customer-detail',{id:custId});
-}
-
-function showAddTask(custId){
-  const tom=new Date();tom.setDate(tom.getDate()+1);const ts=tom.toISOString().split('T')[0];
-  openModal('Add Task',`
-    <div><label class="f-label">Task Title *</label><input class="f-input" id="tk-title" type="text" placeholder="e.g. Follow up on brochure request"/></div>
-    ${!custId?`<div style="margin-top:12px"><label class="f-label">Customer (optional)</label>
-      <input class="f-input" id="tk-co-s" type="text" placeholder="Search…" oninput="tkCoSearch(this.value)" autocomplete="off"/>
-      <div id="tk-co-res" style="border:1px solid var(--border);border-radius:var(--r);margin-top:3px;max-height:150px;overflow-y:auto;display:none;background:var(--surface);position:relative;z-index:10"></div>
-      <input type="hidden" id="tk-coid" value=""/></div>`:`<input type="hidden" id="tk-coid" value="${custId}"/>`}
-    <div class="form-row" style="margin-top:12px">
-      <div><label class="f-label">Due Date</label><input class="f-input" id="tk-due" type="date" value="${ts}"/></div>
-      <div><label class="f-label">Status</label><select class="f-input" id="tk-status"><option value="open">Open</option><option value="in_progress">In Progress</option></select></div>
-      <div><label class="f-label">Priority</label><select class="f-input" id="tk-priority"><option value="normal">Normal</option><option value="urgent">🔴 Urgent</option></select></div>
-    </div>
-    <div id="tk-err" class="inline-err"></div>`,
-    `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveTask('${custId||''}')">Add Task</button>`);
-}
-
-let _tkt;
-async function tkCoSearch(v){
-  const res=document.getElementById('tk-co-res');if(!v||v.length<2){res.style.display='none';return;}
-  clearTimeout(_tkt);_tkt=setTimeout(async()=>{
-    const{data}=await sb.from('customers').select('id,company_name').ilike('company_name',`%${v}%`).limit(8);
-    if(data?.length){res.style.display='block';res.innerHTML=data.map(c=>`<div style="padding:8px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border)" onmousedown="tkCoSel('${c.id}','${c.company_name.replace(/'/g,"\\'")}')">${x(c.company_name)}</div>`).join('');}
-    else res.style.display='none';
-  },200);
-}
-function tkCoSel(id,name){document.getElementById('tk-coid').value=id;document.getElementById('tk-co-s').value=name;document.getElementById('tk-co-res').style.display='none';}
-
-async function saveTask(defCustId){
-  const title=document.getElementById('tk-title').value.trim();
-  const err=document.getElementById('tk-err');
-  if(!title){err.textContent='Task title is required.';return;}
-  err.textContent='';
-  const custId=document.getElementById('tk-coid').value||defCustId||null;
-  const{error}=await sb.from('tasks').insert({title,customer_id:custId||null,due_date:document.getElementById('tk-due').value||null,status:document.getElementById('tk-status').value,priority:document.getElementById('tk-priority').value,assigned_to:S.user.id});
-  if(error){err.textContent=error.message;return;}
-  closeModal();refreshCounts();
-  if(custId&&S.view==='customer-detail')go('customer-detail',{id:custId});
-  else if(S.view==='tasks')renderTasks();
-  else if(S.view==='dashboard')renderDashboard();
-}
-
-async function showEditTask(taskId){
-  const{data:t}=await sb.from('tasks').select('*').eq('id',taskId).single();
-  if(!t)return;
-  const sel=(v,cur)=>v===cur?'selected':'';
-  openModal('Edit Task',`
-    <div><label class="f-label">Task Title *</label><input class="f-input" id="tk-title" type="text" value="${x(t.title||'')}"/></div>
-    <div class="form-row" style="margin-top:12px">
-      <div><label class="f-label">Due Date</label><input class="f-input" id="tk-due" type="date" value="${t.due_date||''}"/></div>
-      <div><label class="f-label">Status</label><select class="f-input" id="tk-status"><option value="open" ${sel('open',t.status)}>Open</option><option value="in_progress" ${sel('in_progress',t.status)}>In Progress</option><option value="done" ${sel('done',t.status)}>Done</option></select></div>
-      <div><label class="f-label">Priority</label><select class="f-input" id="tk-priority"><option value="normal" ${sel('normal',t.priority||'normal')}>Normal</option><option value="urgent" ${sel('urgent',t.priority)}>🔴 Urgent</option></select></div>
-    </div>
-    <div id="tk-err" class="inline-err"></div>`,
-    `<button class="btn" style="color:var(--red)" onclick="deleteTask('${t.id}','${t.customer_id||''}')">Delete</button><button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveTaskEdit('${t.id}','${t.customer_id||''}')">Save</button>`);
-}
-async function saveTaskEdit(taskId,custId){
-  const title=document.getElementById('tk-title').value.trim();
-  const err=document.getElementById('tk-err');
-  if(!title){err.textContent='Task title is required.';return;}
-  err.textContent='';
-  const{error}=await sb.from('tasks').update({title,due_date:document.getElementById('tk-due').value||null,status:document.getElementById('tk-status').value,priority:document.getElementById('tk-priority').value}).eq('id',taskId);
-  if(error){err.textContent=error.message;return;}
-  closeModal();refreshCounts();
-  if(custId&&S.view==='customer-detail')go('customer-detail',{id:custId});
-  else if(S.view==='tasks')renderTasks();
-  else if(S.view==='dashboard')renderDashboard();
-}
-async function deleteTask(taskId,custId){
-  if(!confirm('Delete this task?'))return;
-  const{error}=await sb.from('tasks').delete().eq('id',taskId);
-  if(error){alert(error.message);return;}
-  closeModal();refreshCounts();
-  if(custId&&S.view==='customer-detail')go('customer-detail',{id:custId});
-  else if(S.view==='tasks')renderTasks();
-  else if(S.view==='dashboard')renderDashboard();
-}
-
-async function toggleTask(taskId,el,custId){
-  const done=el.classList.contains('done');
-  el.classList.toggle('done',!done);
-  const t=el.closest('.task-item')?.querySelector('.task-title');if(t)t.classList.toggle('done',!done);
-  await sb.from('tasks').update({status:done?'open':'done'}).eq('id',taskId);
-  refreshCounts();
 }
 
 // ═══ HELPERS ═══
