@@ -340,13 +340,15 @@ const SURL = 'https://ypfwecopdsielnouxwzv.supabase.co';
 const SKEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlwZndlY29wZHNpZWxub3V4d3p2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3NDMyNjgsImV4cCI6MjA5MTMxOTI2OH0.ll4Epk7es-knrgbG6j0e5xo59OEdMFwpxeWmMs9RfpU';
 const sb = supabase.createClient(SURL, SKEY);
 const PG = 250;
-const CRM_VERSION = '15'; // bump on each deploy; must match version.json
+const CRM_VERSION = '16'; // bump on each deploy; must match version.json
 // Columns derived from joins/arrays that can't be ordered server-side — rendered as non-clickable headers
 const NON_SORTABLE_COLS = new Set(['contact_name','contact_first','contact_last','contact_email','name_2','email_2','name_3','email_3','name_4','email_4']);
 // Display key -> real orderable customer column
 const SORT_COL_MAP = {ml_subscribed:'ml_any_subscribed', ml_groups:'ml_group_names', conflict:'conflict_kf_code'};
 const PIPELINE_STAGES = ['Prospect','Contacted','Sampling','Negotiating','Won','Lost'];
-const STAGE_COLOURS = {Prospect:'#1d4ed8',Contacted:'#7c3aed',Sampling:'#0f766e',Negotiating:'#b45309',Won:'#15803d',Lost:'#dc2626'};
+// Off-Pipeline = parked/not on the board. Never rendered as a column or loaded by the board fetch.
+const OFF_PIPELINE = 'Off-Pipeline';
+const STAGE_COLOURS = {Prospect:'#1d4ed8',Contacted:'#7c3aed',Sampling:'#0f766e',Negotiating:'#b45309',Won:'#15803d',Lost:'#dc2626','Off-Pipeline':'#94a3b8'};
 
 // ═══ STATE ═══
 let S = {
@@ -1247,6 +1249,7 @@ async function renderCustomerDetail(id){
           ${dr('Pipeline',`<select onchange="updatePipelineStage('${id}',this.value)" style="border:1px solid var(--border);border-radius:5px;padding:3px 8px;font-size:12px;font-family:var(--f);background:var(--surface);color:var(--text);outline:none">
             <option value="">— None —</option>
             ${PIPELINE_STAGES.map(s=>`<option value="${s}" ${pipeStage===s?'selected':''}>${s}</option>`).join('')}
+            <option value="Off-Pipeline" ${pipeStage==='Off-Pipeline'?'selected':''}>Off-Pipeline</option>
           </select>`)}
           ${dr('Store Type',c.store_type?`<span class="tag-chip">${x(c.store_type)}</span>`:'—')}
           ${dr('Source',c.source?x(c.source):'—')}
@@ -1356,7 +1359,7 @@ async function updatePipelineStage(id,stage){
 async function renderPipeline(){
   const mc=document.getElementById('main-content');
   mc.innerHTML='<div class="loading-page"><span class="spinner"></span> Loading pipeline…</div>';
-  const{data}=await sb.from('customers').select('id,company_name,status,all_time_spend,pipeline_stage,country_name,store_type,last_order_date').not('pipeline_stage','is',null).order('company_name');
+  const{data}=await sb.from('customers').select('id,company_name,status,all_time_spend,pipeline_stage,country_name,store_type,last_order_date').in('pipeline_stage',PIPELINE_STAGES).order('company_name');
   const byStage={};
   PIPELINE_STAGES.forEach(s=>{byStage[s]=[];});
   (data||[]).forEach(c=>{if(byStage[c.pipeline_stage])byStage[c.pipeline_stage].push(c);});
@@ -1373,7 +1376,7 @@ async function renderPipeline(){
         +(c.all_time_spend?'<span class="kcard-spend">£'+N2(c.all_time_spend)+'</span>':'')
         +(c.last_order_date?'<span style="color:var(--text3);font-size:11px">Last: '+fd(c.last_order_date)+'</span>':'')
         +'</div><div class="kcard-move" onclick="event.stopPropagation()">'+mv
-        +'<button onclick="moveStage(\''+c.id+'\',null,event)" style="color:var(--red)">✕ Remove</button></div></div>';
+        +'<button onclick="moveStage(\''+c.id+'\',\'Off-Pipeline\',event)" style="color:var(--red)">⊘ Off-Pipeline</button></div></div>';
     }).join(''):'<div class="kanban-empty">No customers</div>';
     return '<div class="kanban-col">'
       +'<div class="kanban-head"><span class="kanban-label" style="color:'+col+'">'+stage+'</span><span class="kanban-count">'+cards.length+'</span></div>'
@@ -2898,6 +2901,7 @@ async function showAddEditCustomer(id){
       <div><label class="f-label">Pipeline Stage</label><select class="f-input" id="ac-pipe">
         <option value="">— None —</option>
         ${PIPELINE_STAGES.map(s=>`<option value="${s}" ${c?.pipeline_stage===s?'selected':''}>${s}</option>`).join('')}
+        <option value="Off-Pipeline" ${c?.pipeline_stage==='Off-Pipeline'?'selected':''}>Off-Pipeline</option>
       </select></div>
       <div><label class="f-label">All-time Spend (£)</label><input class="f-input" type="number" id="ac-spend" value="${c?.all_time_spend||''}"/></div>
     </div>
