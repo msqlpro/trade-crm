@@ -343,7 +343,7 @@ const SURL = 'https://ypfwecopdsielnouxwzv.supabase.co';
 const SKEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlwZndlY29wZHNpZWxub3V4d3p2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3NDMyNjgsImV4cCI6MjA5MTMxOTI2OH0.ll4Epk7es-knrgbG6j0e5xo59OEdMFwpxeWmMs9RfpU';
 const sb = supabase.createClient(SURL, SKEY);
 const PG = 250;
-const CRM_VERSION = '40'; // bump on each deploy; must match version.json
+const CRM_VERSION = '41'; // bump on each deploy; must match version.json
 const BUILD_DATE = '25 Jun 26'; // shown in the top-bar version label
 // Columns derived from joins/arrays that can't be ordered server-side — rendered as non-clickable headers
 const NON_SORTABLE_COLS = new Set(['contact_name','contact_first','contact_last','contact_email','name_2','email_2','name_3','email_3','name_4','email_4']);
@@ -617,7 +617,7 @@ async function renderDashboard(){
           const val=c.pipeline_value!=null?'£'+(+c.pipeline_value).toFixed(2):'—';
           return`<div class="act-item" style="cursor:pointer" onclick="go('customer-detail',{id:'${c.id}'})">
             <div class="act-dot" style="background:var(--accent)"></div>
-            <div class="act-text">📞 Call ${nm?`<strong>${x(nm)}</strong> at `:''}<strong>${x(c.company_name)}</strong> — ${c._wk} weeks since last order — <strong>${val}</strong>${c.owner?` <span style="color:var(--text3)">(${x(c.owner)})</span>`:''}</div></div>`;}).join(''):'<div class="dash-empty">No reorder calls due — every Ordered customer has ordered within the last 5 weeks.</div>'}</div>
+            <div class="act-text">📞 Call ${nm?`<strong>${x(nm)}</strong> at `:''}<strong>${x(c.company_name)}</strong> — ${c._wk} weeks since last order — <strong>${val}</strong>${c.owner?` <span style="color:var(--text3)">(${x(c.owner)})</span>`:''} · <a onclick="event.stopPropagation();showCallInfo('${c.id}')" style="color:var(--blue);cursor:pointer;font-weight:600;white-space:nowrap">call info ↗</a></div></div>`;}).join(''):'<div class="dash-empty">No reorder calls due — every Ordered customer has ordered within the last 5 weeks.</div>'}</div>
       </div>
       <div class="dash-card" style="grid-column:1/-1">
         <div class="dash-head">Not Contacted in 90+ Days (Active customers) <span class="sb-badge">${r7.data?.length||0}</span></div>
@@ -1043,6 +1043,22 @@ function pickContactName(cs){
   const prim=cs.find(ct=>ct.is_primary&&fmt(ct));
   if(prim) return fmt(prim);
   return cs.map(fmt).find(s=>s)||'';
+}
+async function showCallInfo(id){
+  const{data:c}=await sb.from('customers').select('company_name,phone,mobile,last_order_date,pipeline_value,last_invoice_number,last_invoice_permalink').eq('id',id).single();
+  if(!c) return;
+  const tel=s=>{const d=String(s||'').replace(/[^0-9+]/g,'');return d?`<a href="tel:${d}" style="color:var(--blue);font-weight:600">${x(s)}</a>`:`<span style="color:var(--text3)">—</span>`;};
+  const dash='<span style="color:var(--text3)">—</span>';
+  const val=c.pipeline_value!=null?'£'+(+c.pipeline_value).toFixed(2):'—';
+  const body=`<div style="font-size:13px;line-height:2">
+    <div><span style="color:var(--text2);display:inline-block;width:60px">Phone</span> ${c.phone?tel(c.phone):dash}</div>
+    <div><span style="color:var(--text2);display:inline-block;width:60px">Mobile</span> ${c.mobile?tel(c.mobile):dash}</div>
+    <hr style="border:none;border-top:1px solid var(--border);margin:10px 0">
+    <div><span style="color:var(--text2);display:inline-block;width:60px">Order</span> ${c.last_order_date?fd(c.last_order_date):'—'} &nbsp;·&nbsp; ${val}${c.last_invoice_number?' &nbsp;·&nbsp; Inv '+c.last_invoice_number:''}</div>
+    ${c.last_invoice_permalink?'':'<div style="font-size:11px;color:var(--text3);margin-top:8px">No KashFlow order link on file yet for this customer.</div>'}
+  </div>`;
+  const foot=`${c.last_invoice_permalink?`<a class="btn btn-primary" href="${x(c.last_invoice_permalink)}" target="_blank" rel="noopener">View order in KashFlow ↗</a>`:''}<button class="btn" onclick="closeModal()">Close</button>`;
+  openModal('Call '+x(c.company_name),body,foot);
 }
 function renderCurrentUserSel(){
   const el=document.getElementById('cu-sel');if(!el)return;
