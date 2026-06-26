@@ -343,7 +343,7 @@ const SURL = 'https://ypfwecopdsielnouxwzv.supabase.co';
 const SKEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlwZndlY29wZHNpZWxub3V4d3p2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3NDMyNjgsImV4cCI6MjA5MTMxOTI2OH0.ll4Epk7es-knrgbG6j0e5xo59OEdMFwpxeWmMs9RfpU';
 const sb = supabase.createClient(SURL, SKEY);
 const PG = 250;
-const CRM_VERSION = '36'; // bump on each deploy; must match version.json
+const CRM_VERSION = '37'; // bump on each deploy; must match version.json
 const BUILD_DATE = '25 Jun 26'; // shown in the top-bar version label
 // Columns derived from joins/arrays that can't be ordered server-side — rendered as non-clickable headers
 const NON_SORTABLE_COLS = new Set(['contact_name','contact_first','contact_last','contact_email','name_2','email_2','name_3','email_3','name_4','email_4']);
@@ -1137,12 +1137,12 @@ async function updatePipelineDate(id,val){await sb.from('customers').update({pip
 
 // ── Attributed notes ──
 function notesCard(id,notes){
+  const who=currentUser();
   const rows=notes.length?notes.map(n=>`
     <div style="padding:9px 16px;border-bottom:1px solid var(--border)">
       <div style="font-size:13px;white-space:pre-wrap;line-height:1.5">${x(n.note)}</div>
-      <div style="font-size:11px;color:var(--text3);margin-top:4px"><strong>${x(n.author||'Unknown')}</strong> · ${fdt(n.created_at)}</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:4px"><strong>${x(n.author||'Unknown')}</strong> · ${fdt(n.created_at)}${n.author&&n.author===who?` · <a onclick="editNote('${n.id}')" style="cursor:pointer;color:var(--blue);font-weight:600">edit</a>`:''}</div>
     </div>`).join(''):'<div style="padding:12px 16px;font-size:12px;color:var(--text3)">No notes yet.</div>';
-  const who=currentUser();
   return `<div class="detail-card">
     <div class="dcard-head"><span class="dcard-title">Notes (${notes.length})</span></div>
     ${rows}
@@ -1159,6 +1159,32 @@ async function addNote(id){
   const{error}=await sb.from('pipeline_notes').insert({customer_id:id,note,author:currentUser()||'Unknown'});
   if(error){alert(error.message);return;}
   go('customer-detail',{id});
+}
+async function editNote(noteId){
+  const{data:nt}=await sb.from('pipeline_notes').select('*').eq('id',noteId).single();
+  if(!nt) return;
+  if(!nt.author || nt.author!==currentUser()){ alert('You can only edit notes you created.'); return; }
+  openModal('Edit Note',
+    `<textarea id="edit-note-txt" rows="4" class="f-input" style="resize:vertical;font-family:var(--f)">${x(nt.note)}</textarea><div id="edit-note-err" class="inline-err"></div>`,
+    `<button class="btn" style="color:var(--red)" onclick="deleteNote('${nt.id}','${nt.customer_id}')">Delete</button><button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveNoteEdit('${nt.id}','${nt.customer_id}')">Save</button>`);
+}
+async function saveNoteEdit(noteId,custId){
+  const txt=(document.getElementById('edit-note-txt').value||'').trim();
+  const err=document.getElementById('edit-note-err');
+  if(!txt){err.textContent='Note cannot be empty.';return;}
+  const{error}=await sb.from('pipeline_notes').update({note:txt}).eq('id',noteId);
+  if(error){err.textContent=error.message;return;}
+  closeModal();
+  if(S.view==='customer-detail') go('customer-detail',{id:custId});
+  else if(S.view==='pipeline') renderPipeline();
+}
+async function deleteNote(noteId,custId){
+  if(!confirm('Delete this note?'))return;
+  const{error}=await sb.from('pipeline_notes').delete().eq('id',noteId);
+  if(error){alert(error.message);return;}
+  closeModal();
+  if(S.view==='customer-detail') go('customer-detail',{id:custId});
+  else if(S.view==='pipeline') renderPipeline();
 }
 
 async function loadCampaigns(){
@@ -1546,7 +1572,7 @@ async function renderPipeline(){
       const mv=PIPELINE_STAGES.filter(s=>s!==stage).map(s=>'<button onclick="moveStage(\''+c.id+'\',\''+s+'\',event)">'+(s==='Won'?'✓ Won':s==='Lost'?'✕ Lost':'→ '+s)+'</button>').join('');
       const cnotes=notesByCust[c.id]||[];
       const ncount=cnotes.length;
-      const notesInner=ncount?cnotes.map(n=>'<div style="padding:6px 9px;border-bottom:1px solid var(--border)"><div style="font-size:12px;white-space:pre-wrap;line-height:1.45">'+x(n.note)+'</div><div style="font-size:10px;color:var(--text3);margin-top:3px"><strong>'+x(n.author||'Unknown')+'</strong> · '+fdt(n.created_at)+'</div></div>').join(''):'<div style="padding:6px 9px;font-size:11px;color:var(--text3)">No notes yet.</div>';
+      const notesInner=ncount?cnotes.map(n=>'<div style="padding:6px 9px;border-bottom:1px solid var(--border)"><div style="font-size:12px;white-space:pre-wrap;line-height:1.45">'+x(n.note)+'</div><div style="font-size:10px;color:var(--text3);margin-top:3px"><strong>'+x(n.author||'Unknown')+'</strong> · '+fdt(n.created_at)+(n.author&&n.author===currentUser()?' · <a onclick="editNote(\''+n.id+'\');event.stopPropagation()" style="cursor:pointer;color:var(--blue);font-weight:600">edit</a>':'')+'</div></div>').join(''):'<div style="padding:6px 9px;font-size:11px;color:var(--text3)">No notes yet.</div>';
       return '<div class="kcard" onclick="go(\'customer-detail\',{id:\''+c.id+'\'})">'
         +'<div class="kcard-name">'+x(c.company_name)+'</div>'
         +'<div class="kcard-meta">'
