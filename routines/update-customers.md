@@ -1,6 +1,8 @@
 # Routine: Update Customers (KashFlow → Supabase Delta Sync)
 
-**Last revised: 29 May 2026** — added Step 6.6: nightly refresh of order/spend figures (last_order_date, first_invoiced, invoice_count, all_time_spend, last_12m_spend, prior_12m_spend) computed live from the `invoice` table (ex-VAT Net, quotes excluded, rolling 12m windows). Previously these were a stale one-off April upload.
+**Last revised: 26 Jun 2026** — added Step 6.7: every run, refresh `last_invoice_date` / `last_invoice_number` / `last_invoice_permalink` for customers in the **Ordered** pipeline stage, from their latest non-quote invoice (any paid status). Feeds the dashboard "Reorder Call List" so the 5-week reminder resets on ANY new order, paid or not. Scoped to the tiny Ordered set so it always completes (Step 6.6's full paged refresh was leaving later-alphabet customers stale). New Supabase columns: `last_invoice_date date`, `last_invoice_number integer`, `last_invoice_permalink text`.
+
+**Previously revised: 29 May 2026** — added Step 6.6: nightly refresh of order/spend figures (last_order_date, first_invoiced, invoice_count, all_time_spend, last_12m_spend, prior_12m_spend) computed live from the `invoice` table (ex-VAT Net, quotes excluded, rolling 12m windows). Previously these were a stale one-off April upload.
 
 **Previously revised: 19 April 2026** — switched source from `customers` to `five_minute_customers` (cleaner, geocoded), updated asterisk handling to preserve prefix, added lat/lng/formatted_address/territorial_protection.
 

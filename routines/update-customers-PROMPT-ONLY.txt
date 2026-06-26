@@ -321,6 +321,54 @@ Notes:
 - Count how many customer rows were updated and include it in the Step 7 narrative, e.g. "Order figures refreshed for 4,166 customers from live invoices."
 - If MySQL is unreachable for this step specifically, log to `customer_sync_log.errors` but do NOT fail the overall run — the customer-detail sync already succeeded.
 
+## Step 6.7 — Refresh reorder call-list fields (Ordered pipeline customers)
+
+The dashboard "Reorder Call List" chases customers in the **Ordered** pipeline stage who have not ordered in 5+ weeks. It anchors on `last_invoice_date` — the customer's latest invoice **regardless of paid/unpaid status** — so a freshly-raised, still-unpaid order resets the reminder. It also shows a direct KashFlow link via `last_invoice_number` / `last_invoice_permalink`.
+
+Run this **every time** (delta or full sweep). It is deliberately scoped to ONLY the customers currently in the Ordered stage — a tiny set (usually a handful) — so it always completes and stays reliable even if Step 6.6's big paged refresh is throttled or truncated. These three columns are routine-managed here and nowhere else.
+
+**Step 6.7a — Get the Ordered customers from Supabase:**
+
+```sql
+SELECT kf_customer_id
+FROM customers
+WHERE pipeline_stage = 'Ordered' AND kf_customer_id IS NOT NULL;
+```
+
+If none are returned, skip this step.
+
+**Step 6.7b — For those CustomerIDs, get each one's latest non-quote invoice from MySQL** (any paid status; if several share the latest date, take the highest InvoiceNumber):
+
+```sql
+SELECT i.CustomerID, i.InvoiceNumber, i.InvoiceDate, i.PermaLink
+FROM invoice i
+JOIN (
+  SELECT CustomerID, MAX(InvoiceDate) AS maxd
+  FROM invoice
+  WHERE COALESCE(quote,0)=0 AND CustomerID IN (<ids from 6.7a>)
+  GROUP BY CustomerID
+) m ON m.CustomerID = i.CustomerID AND m.maxd = i.InvoiceDate
+WHERE COALESCE(i.quote,0)=0 AND i.CustomerID IN (<ids from 6.7a>)
+ORDER BY i.CustomerID, i.InvoiceNumber DESC;
+```
+
+**Step 6.7c — Write back to Supabase** (match by `kf_customer_id`):
+
+```sql
+UPDATE customers AS c SET
+  last_invoice_date      = v.inv_date,
+  last_invoice_number    = v.inv_number,
+  last_invoice_permalink = v.permalink,
+  updated_at             = now()
+FROM (VALUES
+  (9659402, DATE '2026-06-26', 70323, 'https://api.kashflow.com/...')
+  -- one row per Ordered customer returned in 6.7b
+) AS v(kf_id, inv_date, inv_number, permalink)
+WHERE c.kf_customer_id = v.kf_id;
+```
+
+This guarantees the reorder reminder clears as soon as ANY new order (paid or unpaid) is raised in KashFlow, with the 5-week cycle restarting from the new order date. Ordered customers with no `kf_customer_id` keep `last_invoice_date` NULL, and the call list falls back to their `last_order_date`. Include a line in the Step 7 narrative, e.g. "Reorder fields refreshed for 3 Ordered customers."
+
 ## Step 7 — Final narrative summary
 
 Return a concise narrative:
