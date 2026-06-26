@@ -343,7 +343,7 @@ const SURL = 'https://ypfwecopdsielnouxwzv.supabase.co';
 const SKEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlwZndlY29wZHNpZWxub3V4d3p2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3NDMyNjgsImV4cCI6MjA5MTMxOTI2OH0.ll4Epk7es-knrgbG6j0e5xo59OEdMFwpxeWmMs9RfpU';
 const sb = supabase.createClient(SURL, SKEY);
 const PG = 250;
-const CRM_VERSION = '39'; // bump on each deploy; must match version.json
+const CRM_VERSION = '40'; // bump on each deploy; must match version.json
 const BUILD_DATE = '25 Jun 26'; // shown in the top-bar version label
 // Columns derived from joins/arrays that can't be ordered server-side — rendered as non-clickable headers
 const NON_SORTABLE_COLS = new Set(['contact_name','contact_first','contact_last','contact_email','name_2','email_2','name_3','email_3','name_4','email_4']);
@@ -566,10 +566,13 @@ async function renderDashboard(){
     sb.from('customers').select('*',{count:'exact',head:true}).gte('last_order_date',d180),
     sb.from('customers').select('*',{count:'exact',head:true}).gte('last_order_date',d365).lt('last_order_date',d270),
     sb.from('customers').select('*',{count:'exact',head:true}).gte('last_order_date',d270).lt('last_order_date',d180),
-    sb.from('events').select('*,customers(id,company_name)').order('occurred_at',{ascending:false}).limit(15),
+    sb.from('customers').select('id,company_name,owner,last_order_date,pipeline_value,contacts(first_name,last_name,is_primary)').eq('pipeline_stage','Ordered').not('last_order_date','is',null).order('last_order_date',{ascending:true}),
     sb.from('customers').select('id,company_name,last_order_date,status').eq('status','active').lt('last_order_date',ninety).order('last_order_date').limit(8),
     sb.from('customers').select('*',{count:'exact',head:true}).is('last_order_date',null),
   ]);
+  const _WK=7*864e5, _now=Date.now();
+  const callList=(r6.data||[]).map(c=>({...c,_wk:Math.floor((_now-new Date(c.last_order_date).getTime())/_WK)}))
+    .filter(c=>c._wk>=5).sort((a,b)=>b._wk-a._wk);
   setPage(`
     <div class="dash-actions">
       <div class="dash-action-card">
@@ -608,12 +611,13 @@ async function renderDashboard(){
     </div>
     <div class="dash-grid">
       <div class="dash-card">
-        <div class="dash-head">Recent Activity</div>
-        <div class="dash-body">${r6.data?.length?r6.data.map(e=>{
-          const et=S.etypes[e.event_type];const col=et?.colour||'#94a3b8';
-          return`<div class="act-item"><div class="act-dot" style="background:${col}"></div>
-            <div class="act-text">${e.customers?`<span class="act-co" onclick="go('customer-detail',{id:'${e.customers.id}'})">${x(e.customers.company_name)}</span> — `:''} ${x(e.title||et?.label||e.event_type)}</div>
-            <div class="act-time">${ago(e.occurred_at)}</div></div>`;}).join(''):'<div class="dash-empty">No recent activity</div>'}</div>
+        <div class="dash-head">Reorder Call List <span class="sb-badge">${callList.length}</span></div>
+        <div class="dash-body">${callList.length?callList.map(c=>{
+          const nm=pickContactName(c.contacts);
+          const val=c.pipeline_value!=null?'£'+(+c.pipeline_value).toFixed(2):'—';
+          return`<div class="act-item" style="cursor:pointer" onclick="go('customer-detail',{id:'${c.id}'})">
+            <div class="act-dot" style="background:var(--accent)"></div>
+            <div class="act-text">📞 Call ${nm?`<strong>${x(nm)}</strong> at `:''}<strong>${x(c.company_name)}</strong> — ${c._wk} weeks since last order — <strong>${val}</strong>${c.owner?` <span style="color:var(--text3)">(${x(c.owner)})</span>`:''}</div></div>`;}).join(''):'<div class="dash-empty">No reorder calls due — every Ordered customer has ordered within the last 5 weeks.</div>'}</div>
       </div>
       <div class="dash-card" style="grid-column:1/-1">
         <div class="dash-head">Not Contacted in 90+ Days (Active customers) <span class="sb-badge">${r7.data?.length||0}</span></div>
@@ -1032,6 +1036,13 @@ function defaultUserName(){
   if(!local) return currentUser();
   const tm=TEAM.find(m=>m.name.toLowerCase()===local.toLowerCase());
   return tm ? tm.name : (local.charAt(0).toUpperCase()+local.slice(1));
+}
+function pickContactName(cs){
+  if(!cs||!cs.length) return '';
+  const fmt=ct=>(((ct.first_name||'')+' '+(ct.last_name||'')).trim());
+  const prim=cs.find(ct=>ct.is_primary&&fmt(ct));
+  if(prim) return fmt(prim);
+  return cs.map(fmt).find(s=>s)||'';
 }
 function renderCurrentUserSel(){
   const el=document.getElementById('cu-sel');if(!el)return;
