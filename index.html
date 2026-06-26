@@ -343,7 +343,7 @@ const SURL = 'https://ypfwecopdsielnouxwzv.supabase.co';
 const SKEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlwZndlY29wZHNpZWxub3V4d3p2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3NDMyNjgsImV4cCI6MjA5MTMxOTI2OH0.ll4Epk7es-knrgbG6j0e5xo59OEdMFwpxeWmMs9RfpU';
 const sb = supabase.createClient(SURL, SKEY);
 const PG = 250;
-const CRM_VERSION = '35'; // bump on each deploy; must match version.json
+const CRM_VERSION = '36'; // bump on each deploy; must match version.json
 const BUILD_DATE = '25 Jun 26'; // shown in the top-bar version label
 // Columns derived from joins/arrays that can't be ordered server-side — rendered as non-clickable headers
 const NON_SORTABLE_COLS = new Set(['contact_name','contact_first','contact_last','contact_email','name_2','email_2','name_3','email_3','name_4','email_4']);
@@ -442,6 +442,7 @@ async function boot(){
   document.getElementById('sb-email').textContent=S.user.email;
   { const tv=document.getElementById('topbar-version'); if(tv) tv.textContent='v'+CRM_VERSION+' · '+BUILD_DATE; }
   await Promise.all([loadEtypes(),loadTags(),loadSettings(),loadColPrefs(),loadCampaigns(),loadPipelineConfig()]);
+  setCurrentUser(defaultUserName());
   renderCurrentUserSel();
   // Sync camp: col labels with live campaign names, and prune deleted ones
   if(S.custCols){
@@ -1025,6 +1026,13 @@ function teamNames(){return TEAM.filter(m=>m.active).map(m=>m.name);}
 function stageMeta(name){return STAGE_META.find(s=>s.name===name)||null;}
 function currentUser(){return localStorage.getItem('crm_user')||'';}
 function setCurrentUser(n){localStorage.setItem('crm_user',n||'');const el=document.getElementById('cu-sel');if(el)el.value=n||'';}
+function defaultUserName(){
+  const email=(S.user&&S.user.email)||'';
+  const local=(email.split('@')[0]||'').trim();
+  if(!local) return currentUser();
+  const tm=TEAM.find(m=>m.name.toLowerCase()===local.toLowerCase());
+  return tm ? tm.name : (local.charAt(0).toUpperCase()+local.slice(1));
+}
 function renderCurrentUserSel(){
   const el=document.getElementById('cu-sel');if(!el)return;
   const cur=currentUser();
@@ -1487,6 +1495,8 @@ async function updatePipelineStage(id,stage){
 
 // ═══ PIPELINE KANBAN ═══
 let _pipeChannel=null, _pipeRefreshT=null, _pipePollT=null;
+let _pipeOwnerFilter='';
+function setPipeOwnerFilter(v){ _pipeOwnerFilter=v; renderPipeline(); }
 function ensurePipelineLive(){
   if(!_pipeChannel){
     try{
@@ -1524,7 +1534,10 @@ async function renderPipeline(){
   }
   const byStage={};
   PIPELINE_STAGES.forEach(s=>{byStage[s]=[];});
-  (data||[]).forEach(c=>{if(byStage[c.pipeline_stage])byStage[c.pipeline_stage].push(c);});
+  let _cust=(data||[]);
+  if(_pipeOwnerFilter==='__none__') _cust=_cust.filter(c=>!c.owner);
+  else if(_pipeOwnerFilter) _cust=_cust.filter(c=>c.owner===_pipeOwnerFilter);
+  _cust.forEach(c=>{if(byStage[c.pipeline_stage])byStage[c.pipeline_stage].push(c);});
   const stageOpts=PIPELINE_STAGES.map(s=>'<option value="'+s+'">'+s+'</option>').join('');
   const kanbanCols=PIPELINE_STAGES.map(stage=>{
     const cards=byStage[stage]||[];
@@ -1576,6 +1589,7 @@ async function renderPipeline(){
     +'<button class="btn btn-primary btn-sm" onclick="pipeAddSelected()">Add to Pipeline</button>'
     +'<span id="pipe-msg" style="font-size:12px;color:var(--green)"></span>'
     +'</div><input type="hidden" id="pipe-sel-id" value=""/></div>'
+    +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-shrink:0"><span style="font-size:12px;color:var(--text2);font-weight:500">View pipeline for:</span><select onchange="setPipeOwnerFilter(this.value)" style="font-size:13px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);cursor:pointer"><option value="">All owners</option>'+teamNames().map(nm=>'<option value="'+x(nm)+'" '+(_pipeOwnerFilter===nm?'selected':'')+'>'+x(nm)+'</option>').join('')+'<option value="__none__" '+(_pipeOwnerFilter==='__none__'?'selected':'')+'>Unassigned</option></select></div>'
     +'<div class="kanban-wrap" style="flex:1;overflow-x:auto;overflow-y:hidden">'+kanbanCols+'</div></div>';
   ensurePipelineLive();
 }
