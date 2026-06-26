@@ -343,7 +343,7 @@ const SURL = 'https://ypfwecopdsielnouxwzv.supabase.co';
 const SKEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlwZndlY29wZHNpZWxub3V4d3p2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3NDMyNjgsImV4cCI6MjA5MTMxOTI2OH0.ll4Epk7es-knrgbG6j0e5xo59OEdMFwpxeWmMs9RfpU';
 const sb = supabase.createClient(SURL, SKEY);
 const PG = 250;
-const CRM_VERSION = '38'; // bump on each deploy; must match version.json
+const CRM_VERSION = '39'; // bump on each deploy; must match version.json
 const BUILD_DATE = '25 Jun 26'; // shown in the top-bar version label
 // Columns derived from joins/arrays that can't be ordered server-side — rendered as non-clickable headers
 const NON_SORTABLE_COLS = new Set(['contact_name','contact_first','contact_last','contact_email','name_2','email_2','name_3','email_3','name_4','email_4']);
@@ -1059,6 +1059,7 @@ function stagesSettingsCard(){
       <input type="color" value="${s.colour}" onchange="updateStage('${s.id}','colour',this.value)" style="width:30px;height:30px;border:none;background:none;cursor:pointer;padding:0;flex-shrink:0"/>
       <input value="${x(s.name)}" onchange="updateStage('${s.id}','name',this.value)" style="flex:1;min-width:90px;font-size:13px;padding:5px 8px;border:1px solid var(--border);border-radius:5px;background:var(--surface);color:var(--text)"/>
       <input value="${x(s.date_label||'')}" placeholder="Date field (optional)" onchange="updateStage('${s.id}','date_label',this.value)" title="If set, cards in this stage get a date field with this label" style="flex:1;min-width:120px;font-size:12px;padding:5px 8px;border:1px solid var(--border);border-radius:5px;background:var(--surface);color:var(--text)"/>
+      <input value="${x(s.value_label||'')}" placeholder="£ value field (optional)" onchange="updateStage('${s.id}','value_label',this.value)" title="If set, moving a card here prompts for a £ value, and cards show a value box" style="flex:1;min-width:120px;font-size:12px;padding:5px 8px;border:1px solid var(--border);border-radius:5px;background:var(--surface);color:var(--text)"/>
       <button class="btn btn-xs" onclick="moveStageOrder('${s.id}',-1)" ${i===0?'disabled':''}>↑</button>
       <button class="btn btn-xs" onclick="moveStageOrder('${s.id}',1)" ${i===STAGE_META.length-1?'disabled':''}>↓</button>
       <button class="btn btn-xs" style="color:var(--red)" onclick="deleteStage('${s.id}')" title="Delete stage">✕</button>
@@ -1080,7 +1081,7 @@ async function addStage(){
   await loadPipelineConfig();renderSettings();
 }
 async function updateStage(id,field,val){
-  const payload={};payload[field]=field==='date_label'?((val||'').trim()||null):(val||'').trim();
+  const payload={};payload[field]=(field==='date_label'||field==='value_label')?((val||'').trim()||null):(val||'').trim();
   if(field==='name'&&!payload.name)return;
   const{error}=await sb.from('pipeline_stages').update(payload).eq('id',id);
   if(error){alert(error.message);return;}
@@ -1423,6 +1424,7 @@ async function renderCustomerDetail(id){
             ${teamNames().map(n=>`<option value="${x(n)}" ${c.owner===n?'selected':''}>${x(n)}</option>`).join('')}
           </select>`)}
           ${(()=>{const sm=stageMeta(pipeStage);return sm&&sm.date_label?dr(x(sm.date_label),`<input type="date" value="${c.pipeline_date||''}" onchange="updatePipelineDate('${id}',this.value)" style="border:1px solid var(--border);border-radius:5px;padding:3px 8px;font-size:12px;font-family:var(--f);background:var(--surface);color:var(--text);outline:none"/>`):'';})()}
+          ${(()=>{const sm=stageMeta(pipeStage);return sm&&sm.value_label?dr(x(sm.value_label),`<span style="font-size:12px;color:var(--text2)">£</span> <input type="number" step="0.01" value="${c.pipeline_value!=null?c.pipeline_value:''}" placeholder="0.00" onchange="updatePipelineValue('${id}',this.value)" style="border:1px solid var(--border);border-radius:5px;padding:3px 8px;font-size:12px;font-family:var(--f);background:var(--surface);color:var(--text);outline:none;width:110px"/>`):'';})()}
           ${dr('Store Type',c.store_type?`<span class="tag-chip">${x(c.store_type)}</span>`:'—')}
           ${dr('Source',c.source?x(c.source):'—')}
           ${c.website?dr('Website',`<a href="${x(c.website)}" target="_blank" style="color:var(--blue);font-size:12px">${x(c.website)}</a>`):''}
@@ -1554,7 +1556,7 @@ function pipelineRefreshNow(){
 async function renderPipeline(){
   const mc=document.getElementById('main-content');
   mc.innerHTML='<div class="loading-page"><span class="spinner"></span> Loading pipeline…</div>';
-  const{data}=await sb.from('customers').select('id,company_name,status,all_time_spend,pipeline_stage,country_name,store_type,last_order_date,owner,pipeline_date').in('pipeline_stage',PIPELINE_STAGES).order('company_name');
+  const{data}=await sb.from('customers').select('id,company_name,status,all_time_spend,pipeline_stage,country_name,store_type,last_order_date,owner,pipeline_date,pipeline_value').in('pipeline_stage',PIPELINE_STAGES).order('company_name');
   const ids=(data||[]).map(c=>c.id);
   const notesByCust={};
   if(ids.length){
@@ -1571,6 +1573,7 @@ async function renderPipeline(){
   const kanbanCols=PIPELINE_STAGES.map(stage=>{
     const cards=byStage[stage]||[];
     const col=STAGE_COLOURS[stage]||'#94a3b8';
+    const _sm=stageMeta(stage); const valLabel=_sm&&_sm.value_label;
     const cardHtml=cards.length?cards.map(c=>{
       const mv=PIPELINE_STAGES.filter(s=>s!==stage).map(s=>'<button onclick="moveStage(\''+c.id+'\',\''+s+'\',event)">'+(s==='Won'?'✓ Won':s==='Lost'?'✕ Lost':'→ '+s)+'</button>').join('');
       const cnotes=notesByCust[c.id]||[];
@@ -1588,6 +1591,7 @@ async function renderPipeline(){
         +'</select>'
         +(c.pipeline_date?'<span style="color:var(--text2);font-size:11px">📅 '+fd(c.pipeline_date)+'</span>':'')
         +'</div>'
+        +(valLabel?'<div onclick="event.stopPropagation()" style="margin-top:6px;display:flex;align-items:center;gap:5px"><span style="font-size:11px;color:var(--text2);font-weight:500">'+x(valLabel)+':</span><span style="font-size:11px;color:var(--text2)">£</span><input type="number" step="0.01" value="'+(c.pipeline_value!=null?c.pipeline_value:'')+'" placeholder="0.00" onchange="updatePipelineValue(\''+c.id+'\',this.value)" style="width:90px;font-size:11px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;background:var(--surface);color:var(--text)"/></div>':'')
         +'<div onclick="event.stopPropagation()" style="margin-top:6px">'
         +'<button onclick="toggleCardNotes(\''+c.id+'\',event)" title="Show/hide notes" style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;cursor:pointer;color:'+(ncount?'var(--blue)':'var(--text3)')+';font-size:14px;font-weight:600;padding:6px 12px;display:inline-flex;align-items:center;gap:6px;line-height:1">💬 '+ncount+'</button>'
         +'</div>'
@@ -1670,7 +1674,20 @@ async function pipeAddSelected(){
 async function moveStage(custId,stage,event){
   event.stopPropagation();
   await sb.from('customers').update({pipeline_stage:stage||null}).eq('id',custId);
+  const sm=stage?stageMeta(stage):null;
+  if(sm&&sm.value_label){
+    const raw=prompt('Enter '+sm.value_label+' (£):');
+    if(raw!==null){
+      const num=parseFloat(String(raw).replace(/[£,\s]/g,''));
+      if(!isNaN(num)) await sb.from('customers').update({pipeline_value:num}).eq('id',custId);
+    }
+  }
   renderPipeline();
+}
+async function updatePipelineValue(id,val){
+  const s=String(val==null?'':val).replace(/[£,\s]/g,'');
+  const num = s===''?null:parseFloat(s);
+  await sb.from('customers').update({pipeline_value:(num!=null&&!isNaN(num))?num:null}).eq('id',id);
 }
 function toggleCardNotes(id,event){
   event.stopPropagation();
