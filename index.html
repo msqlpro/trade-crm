@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Brainbox CRM</title><!-- v20260701143858 -->
+<title>Brainbox CRM</title><!-- v20260701150302 -->
 <link rel="icon" type="image/svg+xml" href="favicon.svg"/>
 <link rel="alternate icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23d6006e'/%3E%3Ctext x='16' y='16.8' font-family='Arial,sans-serif' font-size='11.5' font-weight='700' fill='%23fff' text-anchor='middle' dominant-baseline='central' textLength='23' lengthAdjust='spacingAndGlyphs'%3ECRM%3C/text%3E%3C/svg%3E"/>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -343,7 +343,7 @@ const SURL = 'https://ypfwecopdsielnouxwzv.supabase.co';
 const SKEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlwZndlY29wZHNpZWxub3V4d3p2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3NDMyNjgsImV4cCI6MjA5MTMxOTI2OH0.ll4Epk7es-knrgbG6j0e5xo59OEdMFwpxeWmMs9RfpU';
 const sb = supabase.createClient(SURL, SKEY);
 const PG = 250;
-const CRM_VERSION = '51'; // bump on each deploy; must match version.json
+const CRM_VERSION = '52'; // bump on each deploy; must match version.json
 const BUILD_DATE = '25 Jun 26'; // shown in the top-bar version label
 // Columns derived from joins/arrays that can't be ordered server-side — rendered as non-clickable headers
 const NON_SORTABLE_COLS = new Set(['contact_name','contact_first','contact_last','contact_email','name_2','email_2','name_3','email_3','name_4','email_4']);
@@ -801,8 +801,9 @@ async function renderCustomers(){
           </div>
           <div id="col-picker-list" style="max-height:min(400px,52vh);overflow-y:auto"></div>
           <div style="border-top:1px solid var(--border);padding:8px 14px">
+            <button class="btn btn-xs btn-primary" onclick="event.stopPropagation();openArrangeColumns()">⇅ Arrange columns</button>
             <button class="btn btn-xs" onclick="resetColPrefs()">Reset to default</button>
-            <button class="btn btn-xs btn-primary" onclick="event.stopPropagation();showCreateActivityFromPicker()">+ New Activity</button>
+            <button class="btn btn-xs" onclick="event.stopPropagation();showCreateActivityFromPicker()">+ New Activity</button>
           </div>
         </div>
       </div>
@@ -984,6 +985,117 @@ function ensureCampCols(){
       off++;
     }
   });
+}
+
+// ─────────────────────────────────────────────
+// Full-screen "Arrange columns" view (drag with auto-scroll)
+// ─────────────────────────────────────────────
+let _arrKey=null,_arrY=0,_arrScrollTimer=null;
+
+function openArrangeColumns(){
+  ensureCampCols();
+  S.custColsOpen=false;
+  const pnl=document.getElementById('col-picker-panel'); if(pnl)pnl.style.display='none';
+  let ov=document.getElementById('arrange-overlay');
+  if(!ov){ov=document.createElement('div');ov.id='arrange-overlay';document.body.appendChild(ov);}
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:700;display:flex;align-items:center;justify-content:center;padding:16px';
+  ov.onclick=e=>{if(e.target===ov)closeArrange();};
+  ov.innerHTML=`
+    <div style="background:var(--surface);border-radius:12px;box-shadow:var(--sh-lg);width:560px;max-width:100%;height:min(88vh,820px);display:flex;flex-direction:column;overflow:hidden" onclick="event.stopPropagation()">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border)">
+        <span style="font-size:16px;font-weight:700">Arrange columns</span>
+        <button class="btn btn-primary" onclick="closeArrange()">Done</button>
+      </div>
+      <div style="padding:8px 18px;font-size:12px;color:var(--text2);border-bottom:1px solid var(--border);background:var(--surface2)">Drag the grip to reorder — the list scrolls on its own near the top or bottom edge · tick to show or hide</div>
+      <div style="padding:12px 20px 4px;display:flex;align-items:center;gap:12px;flex-shrink:0">
+        <span style="font-size:24px;color:var(--text3);opacity:.35;width:34px;text-align:center">⠿</span>
+        <span style="flex:1;font-size:15px;font-weight:600">Company</span>
+        <span style="font-size:11px;color:var(--text3);font-style:italic">locked</span>
+      </div>
+      <div id="arrange-list" style="flex:1;overflow-y:auto;padding:0 14px 16px"></div>
+    </div>`;
+  renderArrangeList();
+}
+
+function renderArrangeList(){
+  const list=document.getElementById('arrange-list'); if(!list)return;
+  const cols=S.custCols||DEFAULT_COLS;
+  list.innerHTML=cols.map(c=>{
+    const isCamp=c.key.startsWith('camp:');
+    const drag=(_arrKey===c.key);
+    return `<div class="arr-row" data-key="${x(c.key)}" style="display:flex;align-items:center;gap:12px;padding:13px 10px;border-radius:8px;margin-top:6px;background:${drag?'var(--surface2)':'var(--surface)'};border:1px solid ${drag?'var(--accent)':'var(--border)'};${drag?'box-shadow:0 6px 16px rgba(0,0,0,.14);':''}">
+      <span class="arr-grip" data-key="${x(c.key)}" style="font-size:26px;line-height:1;color:${isCamp?'var(--accent)':'var(--text3)'};cursor:grab;flex-shrink:0;width:34px;text-align:center;touch-action:none;user-select:none">⠿</span>
+      <span style="flex:1;font-size:15px;font-weight:500;color:${isCamp?'var(--accent)':'var(--text)'};min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${x(c.label)}${isCamp?' <span style="font-size:11px">activity</span>':''}</span>
+      <input type="checkbox" ${c.visible?'checked':''} onchange="arrangeToggleVisible('${x(c.key)}',this.checked)" style="width:20px;height:20px;accent-color:var(--accent);cursor:pointer;flex-shrink:0;margin-right:4px">
+    </div>`;
+  }).join('');
+  list.querySelectorAll('.arr-grip').forEach(g=>g.addEventListener('pointerdown',arrangePointerDown));
+}
+
+function arrangePointerDown(e){
+  e.preventDefault();
+  _arrKey=e.currentTarget.dataset.key;
+  _arrY=e.clientY;
+  document.body.style.userSelect='none';
+  document.addEventListener('pointermove',arrangePointerMove);
+  document.addEventListener('pointerup',arrangePointerUp,{once:true});
+  renderArrangeList();
+  arrangeStartAutoScroll();
+}
+
+function arrangePointerMove(e){ _arrY=e.clientY; arrangeReorder(); }
+
+function arrangeReorder(){
+  const list=document.getElementById('arrange-list'); if(!list||_arrKey==null)return;
+  const cols=S.custCols; if(!cols)return;
+  const fromIdx=cols.findIndex(c=>c.key===_arrKey); if(fromIdx<0)return;
+  const rows=[...list.querySelectorAll('.arr-row')];
+  let target=cols.length;
+  for(let i=0;i<rows.length;i++){
+    const r=rows[i].getBoundingClientRect();
+    if(_arrY < r.top + r.height/2){ target=i; break; }
+  }
+  if(target===fromIdx||target===fromIdx+1)return;
+  const moved=cols.splice(fromIdx,1)[0];
+  const insertAt=target>fromIdx?target-1:target;
+  cols.splice(insertAt,0,moved);
+  renderArrangeList();
+}
+
+function arrangeStartAutoScroll(){
+  if(_arrScrollTimer)return;
+  _arrScrollTimer=setInterval(()=>{
+    if(_arrKey==null)return;
+    const list=document.getElementById('arrange-list'); if(!list)return;
+    const r=list.getBoundingClientRect(); const EDGE=52,STEP=16;
+    if(_arrY < r.top+EDGE){ list.scrollTop-=STEP; arrangeReorder(); }
+    else if(_arrY > r.bottom-EDGE){ list.scrollTop+=STEP; arrangeReorder(); }
+  },16);
+}
+
+function arrangePointerUp(){
+  _arrKey=null;
+  document.removeEventListener('pointermove',arrangePointerMove);
+  if(_arrScrollTimer){clearInterval(_arrScrollTimer);_arrScrollTimer=null;}
+  document.body.style.userSelect='';
+  renderArrangeList();
+  saveColPrefs();
+}
+
+function arrangeToggleVisible(key,checked){
+  const cols=S.custCols||DEFAULT_COLS;
+  const c=cols.find(k=>k.key===key); if(!c)return;
+  c.visible=checked;
+  saveColPrefs();
+}
+
+function closeArrange(){
+  if(_arrScrollTimer){clearInterval(_arrScrollTimer);_arrScrollTimer=null;}
+  _arrKey=null;
+  document.removeEventListener('pointermove',arrangePointerMove);
+  document.body.style.userSelect='';
+  const ov=document.getElementById('arrange-overlay'); if(ov)ov.remove();
+  renderCustomers();
 }
 
 function moveCol(i,dir){
