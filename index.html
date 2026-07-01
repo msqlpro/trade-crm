@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Brainbox CRM</title><!-- v20260531151234 -->
+<title>Brainbox CRM</title><!-- v20260701123354 -->
 <link rel="icon" type="image/svg+xml" href="favicon.svg"/>
 <link rel="alternate icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23d6006e'/%3E%3Ctext x='16' y='16.8' font-family='Arial,sans-serif' font-size='11.5' font-weight='700' fill='%23fff' text-anchor='middle' dominant-baseline='central' textLength='23' lengthAdjust='spacingAndGlyphs'%3ECRM%3C/text%3E%3C/svg%3E"/>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -1221,7 +1221,7 @@ async function deleteNote(noteId,custId){
 
 async function loadCampaigns(){
   const[campRes,countRes]=await Promise.all([
-    sb.from('campaigns').select('id,name,description,created_at').not('name','is',null).order('created_at'),
+    sb.from('campaigns').select('id,name,description,created_at,mailerlite_id,opens_count,clicks_count,sent_at,subject').not('name','is',null).order('created_at'),
     sb.from('campaign_customers').select('campaign_id',{count:'exact',head:false})
   ]);
   const countMap={};
@@ -3518,7 +3518,10 @@ function renderCampaigns(){
           <h2 style="font-size:18px;font-weight:700;margin:0">Campaigns</h2>
           <p style="font-size:13px;color:var(--text3);margin:4px 0 0">Create mailouts, vouchers and activity campaigns. Upload a customer list to activate participation.</p>
         </div>
-        <button class="btn btn-primary" onclick="showCreateCampaign()">+ New Campaign</button>
+        <div style="display:flex;gap:8px;flex-shrink:0">
+          <button class="btn btn-teal" onclick="showMailerLiteImport()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Import from MailerLite</button>
+          <button class="btn btn-primary" onclick="showCreateCampaign()">+ New Campaign</button>
+        </div>
       </div>
 
       ${!camps.length ? `
@@ -3533,10 +3536,12 @@ function renderCampaigns(){
             <div style="font-size:22px;flex-shrink:0">📣</div>
             <div style="flex:1;min-width:0">
               <div style="font-size:14px;font-weight:600">${x(cam.name)}</div>
+              ${cam.mailerlite_id?`<div style="font-size:11px;color:var(--teal);margin-top:2px;font-weight:600">MailerLite${cam.sent_at?' · sent '+new Date(cam.sent_at).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}):''} · ${cam.opens_count||0} opens · ${cam.clicks_count||0} clicks</div>`:''}
               ${cam.description?`<div style="font-size:12px;color:var(--text3);margin-top:2px">${x(cam.description)}</div>`:''}
               <div style="font-size:11px;color:var(--text3);margin-top:4px">Created ${new Date(cam.created_at).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'})}</div>
             </div>
             <div style="display:flex;gap:8px;flex-shrink:0">
+              ${cam.mailerlite_id?`<button class="btn btn-sm btn-teal" data-camp-id="${cam.id}" onclick="showMlActivityImport(this.dataset.campId)">⬇ Import Opens/Clicks</button>`:''}
               <button class="btn btn-sm" data-camp-id="${cam.id}" data-camp-name="${x(cam.name).replace(/"/g,'&quot;')}" onclick="showCampUpload(this.dataset.campId,this.dataset.campName)">⬆ Upload Participants</button>
               <button class="btn btn-sm" data-camp-id="${cam.id}" onclick="showCampStats(this.dataset.campId)">View Participants</button>
               <button class="btn btn-sm" data-camp-id="${cam.id}" onclick="showCampFailures(this.dataset.campId)" style="${cam.last_upload_failures&&cam.last_upload_failures.length?'color:var(--red);border-color:var(--red)':'color:var(--text3)'}" title="${cam.last_upload_failures&&cam.last_upload_failures.length?cam.last_upload_failures.length+' failed codes from last upload':'No failures from last upload'}">⚠ Failed (${cam.last_upload_failures?cam.last_upload_failures.length:0})</button>
@@ -3590,6 +3595,233 @@ async function deleteCampaign(id,name){
   // Remove from custCols if present
   if(S.custCols)S.custCols=S.custCols.filter(c=>c.key!=='camp:'+id);
   renderCampaigns();
+}
+
+// ─────────────────────────────────────────────
+// MailerLite campaign import (opens / clicks → campaign columns)
+// ─────────────────────────────────────────────
+let _mlCamps=[]; let _mlShowWeb=false;
+
+// Which included groups a MailerLite campaign targeted (for trade/web classification)
+function mlCampaignGroups(c){
+  const inc=[];
+  const bf=c&&c.basic_filter_for_humans;
+  if(bf&&Array.isArray(bf.included_groups))bf.included_groups.forEach(g=>{if(g&&g.name)inc.push(g.name);});
+  if(Array.isArray(c&&c.filter_for_humans)){
+    c.filter_for_humans.forEach(block=>{
+      (Array.isArray(block)?block:[block]).forEach(line=>{
+        const m=/^In (?:any|all) groups?:\s*(.+)$/i.exec(String(line||''));
+        if(m)inc.push(m[1].trim());
+      });
+    });
+  }
+  return [...new Set(inc)];
+}
+// Trade if it targets a Trade group, or the name says trade and it isn't a Web send
+function mlIsTrade(c){
+  const inc=mlCampaignGroups(c);
+  if(inc.some(n=>/trade/i.test(n)))return true;
+  return /trade/i.test((c&&c.name)||'')&&!inc.some(n=>/web/i.test(n));
+}
+
+async function mlFetchSentCampaigns(){
+  const out=[]; let page=1;
+  for(let i=0;i<4;i++){
+    const url=`https://connect.mailerlite.com/api/campaigns?filter[status]=sent&limit=25&page=${page}`;
+    const res=await fetch(url,{headers:{'Authorization':`Bearer ${S.mlKey}`,'Accept':'application/json'}});
+    if(!res.ok)throw new Error('MailerLite returned '+res.status);
+    const j=await res.json();
+    (j.data||[]).forEach(c=>out.push(c));
+    const last=j.meta&&j.meta.last_page;
+    if(!last||page>=last)break;
+    page++;
+  }
+  return out;
+}
+
+async function showMailerLiteImport(){
+  if(!S.mlKey){alert('Add your MailerLite API key in Settings first.');return;}
+  document.getElementById('modal-overlay').innerHTML=`
+    <div class="modal modal-lg" style="max-width:660px">
+      <div class="modal-head"><span class="modal-title">Import campaigns from MailerLite</span><button class="modal-close" onclick="closeModal()">✕</button></div>
+      <div class="modal-body" id="modal-body"><div style="padding:28px;text-align:center;color:var(--text3)">Loading sent campaigns…</div></div>
+      <div class="modal-foot" id="modal-foot"><button class="btn" onclick="closeModal()">Cancel</button></div>
+    </div>`;
+  document.getElementById('modal-overlay').hidden=false;
+  try{
+    const all=await mlFetchSentCampaigns();
+    all.sort((a,b)=>String((b.finished_at||b.created_at||'')).localeCompare(String((a.finished_at||a.created_at||''))));
+    _mlCamps=all; _mlShowWeb=false;
+    renderMlImportList();
+  }catch(e){
+    const b=document.getElementById('modal-body');
+    if(b)b.innerHTML='<div style="padding:22px;color:var(--red)">Couldn\'t load campaigns: '+x(e.message||String(e))+'</div>';
+  }
+}
+
+function renderMlImportList(){
+  const body=document.getElementById('modal-body'); if(!body)return;
+  const imported=new Set(S.campaigns.filter(c=>c.mailerlite_id).map(c=>String(c.mailerlite_id)));
+  const list=_mlCamps.filter(c=>_mlShowWeb||mlIsTrade(c));
+  const rows=list.map(c=>{
+    const done=imported.has(String(c.id));
+    const dt=c.finished_at?new Date(c.finished_at.replace(' ','T')).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}):'';
+    const st=c.stats||{};
+    const groups=mlCampaignGroups(c).join(', ');
+    return `<label style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--border);cursor:${done?'default':'pointer'};opacity:${done?'.55':'1'}">
+      <input type="checkbox" class="ml-pick" value="${x(String(c.id))}" ${done?'disabled':''} style="width:16px;height:16px;accent-color:var(--accent);flex-shrink:0">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${x(c.name)}${done?' <span style="color:var(--green);font-size:11px;font-weight:600">✓ imported</span>':''}</div>
+        <div style="font-size:11px;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${dt} · ${st.opens_count||0} opens · ${st.clicks_count||0} clicks${groups?' · '+x(groups):''}</div>
+      </div>
+    </label>`;
+  }).join('');
+  body.innerHTML=`
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <div style="font-size:12px;color:var(--text3)">${list.length} ${_mlShowWeb?'':'trade '}campaign(s) — tick the ones to bring in</div>
+      <label style="font-size:12px;color:var(--text2);cursor:pointer;user-select:none"><input type="checkbox" ${_mlShowWeb?'checked':''} onchange="_mlShowWeb=this.checked;renderMlImportList()" style="margin-right:6px;vertical-align:middle">Show web campaigns too</label>
+    </div>
+    <div style="border:1px solid var(--border);border-radius:8px;max-height:380px;overflow:auto">${rows||'<div style="padding:22px;text-align:center;color:var(--text3)">No campaigns found</div>'}</div>`;
+  document.getElementById('modal-foot').innerHTML=`<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="mlBringInSelected()">Bring in selected</button>`;
+}
+
+async function mlBringInSelected(){
+  const picks=[...document.querySelectorAll('.ml-pick:checked')].map(el=>el.value);
+  if(!picks.length){alert('Tick at least one campaign to bring in.');return;}
+  const body=document.getElementById('modal-body');
+  if(body)body.innerHTML='<div style="padding:28px;text-align:center">Bringing in '+picks.length+' campaign(s)…</div>';
+  try{
+    const rows=picks.map(id=>{
+      const c=_mlCamps.find(k=>String(k.id)===String(id));
+      return {
+        mailerlite_id:String(c.id),
+        name:c.name,
+        subject:(c.emails&&c.emails[0]&&c.emails[0].subject)||null,
+        status:'sent',
+        sent_at:c.finished_at?new Date(c.finished_at.replace(' ','T')).toISOString():null,
+        opens_count:(c.stats&&c.stats.opens_count)||0,
+        clicks_count:(c.stats&&c.stats.clicks_count)||0,
+        created_by:S.user.id
+      };
+    });
+    const{error}=await sb.from('campaigns').upsert(rows,{onConflict:'mailerlite_id'});
+    if(error)throw error;
+    await loadCampaigns();
+    closeModal();
+    renderCampaigns();
+  }catch(e){
+    if(body)body.innerHTML='<div style="padding:22px;color:var(--red)">Failed to save: '+x(e.message||String(e))+'</div>';
+  }
+}
+
+function showMlActivityImport(campId){
+  const cam=S.campaigns.find(c=>c.id===campId); if(!cam)return;
+  if(!cam.mailerlite_id){alert('This campaign has no MailerLite link.');return;}
+  document.getElementById('modal-overlay').innerHTML=`
+    <div class="modal" style="max-width:470px">
+      <div class="modal-head"><span class="modal-title">Import activity — ${x(cam.name)}</span><button class="modal-close" onclick="closeModal()">✕</button></div>
+      <div class="modal-body" id="modal-body">
+        <p style="font-size:13px;color:var(--text2);margin:0 0 14px">Pulls the MailerLite subscribers who opened or clicked this campaign, matches them to CRM contacts by email, and ticks them in this campaign's column on the Customers page.</p>
+        <label class="f-label">Which activity?</label>
+        <div style="display:flex;gap:8px;margin-top:6px">
+          <label style="flex:1;border:1px solid var(--border);border-radius:8px;padding:10px 12px;cursor:pointer;font-size:13px"><input type="radio" name="ml-act" value="opened" checked style="margin-right:6px;vertical-align:middle">Opened <span style="color:var(--text3)">(${cam.opens_count||0})</span></label>
+          <label style="flex:1;border:1px solid var(--border);border-radius:8px;padding:10px 12px;cursor:pointer;font-size:13px"><input type="radio" name="ml-act" value="clicked" style="margin-right:6px;vertical-align:middle">Clicked <span style="color:var(--text3)">(${cam.clicks_count||0})</span></label>
+        </div>
+      </div>
+      <div class="modal-foot" id="modal-foot">
+        <button class="btn" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="importMlActivity('${campId}',(document.querySelector('input[name=ml-act]:checked')||{}).value||'opened')">Import</button>
+      </div>
+    </div>`;
+  document.getElementById('modal-overlay').hidden=false;
+}
+
+async function mlFetchActivity(mlid,type,onProgress){
+  const emails={}; let page=1,last=1,guard=0;
+  do{
+    const url=`https://connect.mailerlite.com/api/campaigns/${mlid}/subscribers?filter[type]=${type}&limit=100&page=${page}`;
+    const res=await fetch(url,{headers:{'Authorization':`Bearer ${S.mlKey}`,'Accept':'application/json'}});
+    if(res.status===429){await new Promise(r=>setTimeout(r,3000));if(guard++>5)throw new Error('MailerLite rate limit');continue;}
+    if(!res.ok)throw new Error('MailerLite returned '+res.status);
+    const j=await res.json();
+    (j.data||[]).forEach(r=>{
+      const em=String(r.subscriber_email||(r.subscriber&&r.subscriber.email)||'').toLowerCase().trim();
+      if(!em)return;
+      const prev=emails[em]||{opens:0,clicks:0};
+      emails[em]={opens:Math.max(prev.opens,r.opens_count||0),clicks:Math.max(prev.clicks,r.clicks_count||0)};
+    });
+    last=(j.meta&&j.meta.last_page)||1;
+    if(onProgress)onProgress(page,last,(j.meta&&j.meta.total)||0);
+    page++;
+  }while(page<=last&&guard++<200);
+  return emails;
+}
+
+async function mlLoadContactEmailMap(){
+  const map={}; let from=0; const size=1000;
+  while(true){
+    const{data,error}=await sb.from('contacts').select('email,customer_id').not('email','is',null).range(from,from+size-1);
+    if(error)throw error;
+    (data||[]).forEach(r=>{const e=String(r.email||'').toLowerCase().trim();if(e&&r.customer_id&&!map[e])map[e]=r.customer_id;});
+    if(!data||data.length<size)break;
+    from+=size;
+  }
+  return map;
+}
+
+function mlEnsureColumnVisible(campId){
+  const cam=S.campaigns.find(c=>c.id===campId); if(!cam)return;
+  if(!S.custCols)S.custCols=(typeof DEFAULT_COLS!=='undefined'?JSON.parse(JSON.stringify(DEFAULT_COLS)):[]);
+  const key='camp:'+campId;
+  let col=S.custCols.find(c=>c.key===key);
+  if(!col){S.custCols.push({key,label:cam.name,visible:true});}
+  else col.visible=true;
+  try{saveColPrefs();}catch(e){}
+}
+
+async function importMlActivity(campId,type){
+  const cam=S.campaigns.find(c=>c.id===campId);
+  const body=document.getElementById('modal-body');
+  const foot=document.getElementById('modal-foot');
+  const setMsg=h=>{if(body)body.innerHTML=h;};
+  if(!cam||!cam.mailerlite_id){setMsg('<div style="padding:20px;color:var(--red)">No MailerLite link on this campaign.</div>');return;}
+  if(foot)foot.innerHTML='';
+  setMsg('<div style="padding:24px;text-align:center">Fetching '+type+' from MailerLite…</div>');
+  try{
+    const activity=await mlFetchActivity(cam.mailerlite_id,type,(p,l,t)=>{
+      setMsg('<div style="padding:24px;text-align:center">Fetching '+type+' from MailerLite…<div style="font-size:12px;color:var(--text3);margin-top:6px">page '+p+' of '+l+' · '+t+' subscribers</div></div>');
+    });
+    const mlEmails=Object.keys(activity);
+    setMsg('<div style="padding:24px;text-align:center">Matching '+mlEmails.length+' subscribers to CRM contacts…</div>');
+    const contactMap=await mlLoadContactEmailMap();
+    const byCust={}; let unmatched=0;
+    mlEmails.forEach(em=>{
+      const cid=contactMap[em];
+      if(!cid){unmatched++;return;}
+      const a=activity[em]; const prev=byCust[cid]||{opens:0,clicks:0};
+      byCust[cid]={opens:Math.max(prev.opens,a.opens),clicks:Math.max(prev.clicks,a.clicks)};
+    });
+    const custIds=Object.keys(byCust);
+    const nowIso=new Date().toISOString();
+    const rows=custIds.map(cid=>{
+      const a=byCust[cid];
+      let note = type==='clicked'
+        ? 'Clicked'+(a.clicks>1?' ×'+a.clicks:'')
+        : 'Opened'+(a.opens>1?' ×'+a.opens:'')+(a.clicks>0?', clicked':'');
+      return {campaign_id:campId,customer_id:cid,notes:note,activated_at:nowIso};
+    });
+    for(let i=0;i<rows.length;i+=500){
+      const{error}=await sb.from('campaign_customers').upsert(rows.slice(i,i+500),{onConflict:'campaign_id,customer_id'});
+      if(error)throw error;
+    }
+    mlEnsureColumnVisible(campId);
+    await loadCampaigns();
+    setMsg('<div style="padding:24px;text-align:center;color:var(--green)"><div style="font-size:34px;line-height:1">✓</div><div style="font-weight:700;margin-top:8px;color:var(--text)">'+custIds.length+' customers ticked</div><div style="font-size:12px;color:var(--text3);margin-top:6px">'+mlEmails.length+' '+type+' subscribers · '+unmatched+' not matched to a CRM contact</div><div style="font-size:12px;color:var(--text3);margin-top:4px">The "'+x(cam.name)+'" column is now switched on in Customers.</div></div>');
+    if(foot)foot.innerHTML='<button class="btn btn-primary" onclick="closeModal();renderCampaigns()">Done</button>';
+  }catch(e){
+    setMsg('<div style="padding:22px;color:var(--red)">Import failed: '+x(e.message||String(e))+'</div>');
+    if(foot)foot.innerHTML='<button class="btn" onclick="closeModal()">Close</button>';
+  }
 }
 
 function showCampUpload(campId,campName){
