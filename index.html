@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Brainbox CRM</title><!-- v20260701140613 -->
+<title>Brainbox CRM</title><!-- v20260701141037 -->
 <link rel="icon" type="image/svg+xml" href="favicon.svg"/>
 <link rel="alternate icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23d6006e'/%3E%3Ctext x='16' y='16.8' font-family='Arial,sans-serif' font-size='11.5' font-weight='700' fill='%23fff' text-anchor='middle' dominant-baseline='central' textLength='23' lengthAdjust='spacingAndGlyphs'%3ECRM%3C/text%3E%3C/svg%3E"/>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -343,7 +343,7 @@ const SURL = 'https://ypfwecopdsielnouxwzv.supabase.co';
 const SKEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlwZndlY29wZHNpZWxub3V4d3p2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3NDMyNjgsImV4cCI6MjA5MTMxOTI2OH0.ll4Epk7es-knrgbG6j0e5xo59OEdMFwpxeWmMs9RfpU';
 const sb = supabase.createClient(SURL, SKEY);
 const PG = 250;
-const CRM_VERSION = '48'; // bump on each deploy; must match version.json
+const CRM_VERSION = '49'; // bump on each deploy; must match version.json
 const BUILD_DATE = '25 Jun 26'; // shown in the top-bar version label
 // Columns derived from joins/arrays that can't be ordered server-side — rendered as non-clickable headers
 const NON_SORTABLE_COLS = new Set(['contact_name','contact_first','contact_last','contact_email','name_2','email_2','name_3','email_3','name_4','email_4']);
@@ -562,7 +562,7 @@ async function renderDashboard(){
   const d180=new Date(Date.now()-180*864e5).toISOString().split('T')[0];
   const d270=new Date(Date.now()-270*864e5).toISOString().split('T')[0];
   const d365=new Date(Date.now()-365*864e5).toISOString().split('T')[0];
-  const[r1,r2,r3,r4,r6,r7,rLead]=await Promise.all([
+  const[r1,r2,r3,r4,r6,r7,rLead,rDormant]=await Promise.all([
     sb.from('customers').select('*',{count:'exact',head:true}),
     sb.from('customers').select('*',{count:'exact',head:true}).gte('last_order_date',d180),
     sb.from('customers').select('*',{count:'exact',head:true}).gte('last_order_date',d365).lt('last_order_date',d270),
@@ -570,6 +570,7 @@ async function renderDashboard(){
     sb.from('customers').select('id,company_name,owner,last_order_date,last_invoice_date,pipeline_value,contacts(first_name,last_name,is_primary)').eq('pipeline_stage','Ordered').order('company_name'),
     sb.from('customers').select('id,company_name,last_order_date,status').eq('status','active').lt('last_order_date',ninety).order('last_order_date').limit(8),
     sb.from('customers').select('*',{count:'exact',head:true}).is('last_order_date',null),
+    sb.from('customers').select('*',{count:'exact',head:true}).lt('last_order_date',d365),
   ]);
   const _WK=7*864e5, _now=Date.now();
   const callList=(r6.data||[]).map(c=>{const anchor=c.last_invoice_date||c.last_order_date; return {...c,_wk:anchor?Math.floor((_now-new Date(anchor).getTime())/_WK):-1};})
@@ -609,6 +610,7 @@ async function renderDashboard(){
       <div class="stat-card"><div class="stat-n" style="color:var(--accent)">${n(rLead.count)}</div><div class="stat-l">Leads</div><div class="stat-sub">Never ordered</div></div>
       <div class="stat-card"><div class="stat-n" style="color:var(--orange,#b45309)">${n(r4.count)}</div><div class="stat-l">At Risk</div><div class="stat-sub">Last order 180–270 days ago</div></div>
       <div class="stat-card"><div class="stat-n" style="color:var(--red)">${n(r3.count)}</div><div class="stat-l">Lapsed</div><div class="stat-sub">Last order 270–365 days ago</div></div>
+      <div class="stat-card"><div class="stat-n" style="color:var(--text2)">${n(rDormant.count)}</div><div class="stat-l">Dormant</div><div class="stat-sub">Last order 12+ months ago</div></div>
     </div>
     <div class="dash-grid">
       <div class="dash-card">
