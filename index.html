@@ -343,7 +343,7 @@ const SURL = 'https://ypfwecopdsielnouxwzv.supabase.co';
 const SKEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlwZndlY29wZHNpZWxub3V4d3p2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3NDMyNjgsImV4cCI6MjA5MTMxOTI2OH0.ll4Epk7es-knrgbG6j0e5xo59OEdMFwpxeWmMs9RfpU';
 const sb = supabase.createClient(SURL, SKEY);
 const PG = 250;
-const CRM_VERSION = '56'; // bump on each deploy; must match version.json
+const CRM_VERSION = '57'; // bump on each deploy; must match version.json
 const BUILD_DATE = '25 Jun 26'; // shown in the top-bar version label
 // Columns derived from joins/arrays that can't be ordered server-side — rendered as non-clickable headers
 const NON_SORTABLE_COLS = new Set(['contact_name','contact_first','contact_last','contact_email','name_2','email_2','name_3','email_3','name_4','email_4']);
@@ -1721,7 +1721,18 @@ async function deleteCustomer(id){
   go('customers');
 }
 async function updatePipelineStage(id,stage){
-  await sb.from('customers').update({pipeline_stage:stage||null}).eq('id',id);
+  const patch={pipeline_stage:stage||null};
+  const now=new Date().toISOString();
+  if(stage==='Contacted') patch.last_contacted_at=now;
+  await sb.from('customers').update(patch).eq('id',id);
+  if(stage==='Contacted'){
+    await sb.from('events').insert({
+      customer_id:id, event_type:'note_logged',
+      title:'Marked as Contacted (pipeline stage)',
+      occurred_at:now, source:'system', created_by:S.user?.id||null
+    });
+    if(S.view==='customer-detail') go('customer-detail',{id});
+  }
 }
 
 // ═══ PIPELINE KANBAN ═══
