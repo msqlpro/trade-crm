@@ -343,7 +343,7 @@ const SURL = 'https://ypfwecopdsielnouxwzv.supabase.co';
 const SKEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlwZndlY29wZHNpZWxub3V4d3p2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3NDMyNjgsImV4cCI6MjA5MTMxOTI2OH0.ll4Epk7es-knrgbG6j0e5xo59OEdMFwpxeWmMs9RfpU';
 const sb = supabase.createClient(SURL, SKEY);
 const PG = 250;
-const CRM_VERSION = '54'; // bump on each deploy; must match version.json
+const CRM_VERSION = '55'; // bump on each deploy; must match version.json
 const BUILD_DATE = '25 Jun 26'; // shown in the top-bar version label
 // Columns derived from joins/arrays that can't be ordered server-side — rendered as non-clickable headers
 const NON_SORTABLE_COLS = new Set(['contact_name','contact_first','contact_last','contact_email','name_2','email_2','name_3','email_3','name_4','email_4']);
@@ -417,7 +417,7 @@ const ALL_COLS = [
   {key:'invoice_count',      label:'No. of Invoices'},
   {key:'last_order_date',    label:'Last Invoiced'},
   {key:'first_invoiced',     label:'First Invoiced'},
-  {key:'last_contacted_at',  label:'Contacted'},
+  {key:'last_contacted_at',  label:'Last Contacted'},
   // Dates
   {key:'kf_created_date',    label:'Customer Created Date'},
   // Notes
@@ -892,7 +892,7 @@ function renderCell(key,c){
     case 'last_order_date':  return dt(c.last_order_date);
     case 'first_invoiced':   return dt(c.first_invoiced);
     case 'kf_created_date':  return dt(c.kf_created_date);
-    case 'last_contacted_at':return td(c.last_contacted_at?'<span style="font-size:13px;font-weight:700;color:var(--accent)">✓</span>':'','','text-align:center');
+    case 'last_contacted_at':return td(c.last_contacted_at?fd(c.last_contacted_at):'<span style="color:var(--text3)">—</span>');
     // Notes
     case 'notes':            return td(x((c.notes||'').substring(0,60)+(c.notes?.length>60?'…':'')),'','color:var(--text2);font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap');
     case 'customer_notes':   return td(x((c.customer_notes||'').substring(0,60)+(c.customer_notes?.length>60?'…':'')),'','color:var(--text2);font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap');
