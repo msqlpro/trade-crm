@@ -343,7 +343,7 @@ const SURL = 'https://ypfwecopdsielnouxwzv.supabase.co';
 const SKEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlwZndlY29wZHNpZWxub3V4d3p2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3NDMyNjgsImV4cCI6MjA5MTMxOTI2OH0.ll4Epk7es-knrgbG6j0e5xo59OEdMFwpxeWmMs9RfpU';
 const sb = supabase.createClient(SURL, SKEY);
 const PG = 250;
-const CRM_VERSION = '58'; // bump on each deploy; must match version.json
+const CRM_VERSION = '59'; // bump on each deploy; must match version.json
 const BUILD_DATE = '14 Jul 26'; // shown in the top-bar version label
 // Columns derived from joins/arrays that can't be ordered server-side — rendered as non-clickable headers
 const NON_SORTABLE_COLS = new Set(['contact_name','contact_first','contact_last','contact_email','name_2','email_2','name_3','email_3','name_4','email_4']);
@@ -3082,12 +3082,16 @@ async function runSyncMailerLite(){
 
 async function callRoutineProxy(routine, text){
   // Call the Supabase Edge Function 'trigger-routine' which proxies to Anthropic.
-  // Edge function is verify_jwt=false — the real secret (routine bearer token) stays
-  // server-side in app_settings and is never exposed to the browser.
+  // The function is verify_jwt=true, so we must send the signed-in user's access
+  // token — anonymous callers are rejected. The routine bearer token itself stays
+  // server-side in app_settings and is never sent to the browser.
+  const { data:{ session } } = await sb.auth.getSession();
+  if(!session) throw new Error('Your session has expired — please sign in again.');
   return await fetch(`${SURL}/functions/v1/trigger-routine`, {
     method: 'POST',
     headers: {
       'apikey': SKEY,
+      'Authorization': `Bearer ${session.access_token}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({ routine, text }),
