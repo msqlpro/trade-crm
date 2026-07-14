@@ -123,6 +123,7 @@ textarea.f-input{resize:vertical;min-height:72px}
 .dash-action-last{font-size:11px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dash-action-progress{display:none;align-items:center;gap:8px}
 .dash-action-progress.active{display:flex}
+.dash-action-progress.error .dash-action-status{color:var(--red);white-space:normal}
 .dash-action-status{font-size:12px;color:var(--text2);font-weight:500;white-space:nowrap}
 .stat-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px 18px}
 .stat-n{font-size:26px;font-weight:700;letter-spacing:-.8px;line-height:1;font-variant-numeric:tabular-nums}
@@ -343,7 +344,7 @@ const SURL = 'https://ypfwecopdsielnouxwzv.supabase.co';
 const SKEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlwZndlY29wZHNpZWxub3V4d3p2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3NDMyNjgsImV4cCI6MjA5MTMxOTI2OH0.ll4Epk7es-knrgbG6j0e5xo59OEdMFwpxeWmMs9RfpU';
 const sb = supabase.createClient(SURL, SKEY);
 const PG = 250;
-const CRM_VERSION = '59'; // bump on each deploy; must match version.json
+const CRM_VERSION = '60'; // bump on each deploy; must match version.json
 const BUILD_DATE = '14 Jul 26'; // shown in the top-bar version label
 // Columns derived from joins/arrays that can't be ordered server-side — rendered as non-clickable headers
 const NON_SORTABLE_COLS = new Set(['contact_name','contact_first','contact_last','contact_email','name_2','email_2','name_3','email_3','name_4','email_4']);
@@ -2844,7 +2845,19 @@ function rdSetDial(dialPrefix, pct){
 // Hide dashboard mini-dial (called when work completes + result shown)
 function hideDashProgress(prefix){
   const prog = document.getElementById('dash-'+prefix+'-progress');
-  if(prog) prog.classList.remove('active');
+  if(prog){ prog.classList.remove('active','error'); }
+}
+
+// Show a routine failure on the Dashboard tile. The status span lives INSIDE the
+// progress container, so we must keep the container visible or the error message
+// gets hidden along with the dial (which made failures look like nothing happened).
+function failDashProgress(prefix, msg){
+  const prog = document.getElementById('dash-'+prefix+'-progress');
+  const dial = document.getElementById('dash-'+prefix+'-dial-fg');
+  if(dial) dial.style.stroke = 'var(--red)';
+  if(prog){ prog.classList.add('active','error'); }
+  const el = document.getElementById('dash-'+prefix+'-status');
+  if(el){ el.textContent = msg; el.style.color = 'var(--red)'; el.title = msg; }
 }
 
 // Set dashboard status label
@@ -2881,7 +2894,11 @@ async function runUpdateCustomers(){
   if(progress) progress.style.display = 'block';
   // Activate Dashboard mini-dial if we're on Dashboard
   const dashProg = document.getElementById('dash-uc-progress');
-  if(dashProg) dashProg.classList.add('active');
+  if(dashProg){ dashProg.classList.remove('error'); dashProg.classList.add('active'); }
+  const dashDial = document.getElementById('dash-uc-dial-fg');
+  if(dashDial) dashDial.style.stroke = 'var(--blue)';
+  const dashStat = document.getElementById('dash-uc-status');
+  if(dashStat) dashStat.style.color = '';
   rdSetDial('uc', 0);
   setStatus('Fetching routine config…');
   setSub('');
@@ -2908,7 +2925,7 @@ async function runUpdateCustomers(){
         msg = `HTTP ${res.status}: ${txt.substring(0,200)}`;
       }
       setSub(msg);
-      hideDashProgress('uc');
+      failDashProgress('uc', msg);
       return;
     }
 
@@ -2971,9 +2988,10 @@ async function runUpdateCustomers(){
     setTimeout(()=>hideDashProgress('uc'), 3000);
     loadLastSyncTimestamps();
   } catch(e){
+    const m = e.message || String(e);
     setStatus('Error');
-    setSub(e.message || String(e));
-    hideDashProgress('uc');
+    setSub(m);
+    failDashProgress('uc', m);
   }
 }
 
@@ -2987,7 +3005,11 @@ async function runSyncMailerLite(){
   if(result) result.style.display = 'none';
   if(progress) progress.style.display = 'block';
   const dashProg = document.getElementById('dash-ml-progress');
-  if(dashProg) dashProg.classList.add('active');
+  if(dashProg){ dashProg.classList.remove('error'); dashProg.classList.add('active'); }
+  const dashDial = document.getElementById('dash-ml-dial-fg');
+  if(dashDial) dashDial.style.stroke = 'var(--blue)';
+  const dashStat = document.getElementById('dash-ml-status');
+  if(dashStat) dashStat.style.color = '';
   rdSetDial('ml', 0);
   setStatus('Fetching routine config…');
   setSub('');
@@ -3014,7 +3036,7 @@ async function runSyncMailerLite(){
         msg = `HTTP ${res.status}: ${txt.substring(0,200)}`;
       }
       setSub(msg);
-      hideDashProgress('ml');
+      failDashProgress('ml', msg);
       return;
     }
 
@@ -3074,9 +3096,10 @@ async function runSyncMailerLite(){
     setTimeout(()=>hideDashProgress('ml'), 3000);
     loadLastSyncTimestamps();
   } catch(e){
+    const m = e.message || String(e);
     setStatus('Error');
-    setSub(e.message || String(e));
-    hideDashProgress('ml');
+    setSub(m);
+    failDashProgress('ml', m);
   }
 }
 
