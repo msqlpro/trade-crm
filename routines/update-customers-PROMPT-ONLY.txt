@@ -11,6 +11,10 @@ You are performing a KashFlow → Supabase customer delta sync for the Brainbox 
 
 Every UPDATE you issue fires an audit trigger that stores the full before/after row as JSON. Rewriting a row with values identical to the ones already there is not free: it costs runtime and writes a junk audit record. **Never write a row unless at least one value genuinely differs.** This applies to every step below, and especially to Step 6.6.
 
+# EXECUTION RULES — no subagents, no parallel workflows
+
+Do this work **yourself, sequentially, in this session**. Do NOT spawn subagents, dynamic workflows, parallel tasks, or background jobs — this routine runs unattended on a schedule, so nobody is there to approve them, and they burn usage limits for no benefit. Paging through data is cheap; just do it one page at a time, in order. If a tool offers to parallelise or delegate, decline.
+
 # Name-prefix conventions (CRITICAL — read carefully)
 
 The KashFlow team uses two name prefixes as control signals. Respect them exactly.
