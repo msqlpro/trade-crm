@@ -344,7 +344,7 @@ const SURL = 'https://ypfwecopdsielnouxwzv.supabase.co';
 const SKEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlwZndlY29wZHNpZWxub3V4d3p2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3NDMyNjgsImV4cCI6MjA5MTMxOTI2OH0.ll4Epk7es-knrgbG6j0e5xo59OEdMFwpxeWmMs9RfpU';
 const sb = supabase.createClient(SURL, SKEY);
 const PG = 250;
-const CRM_VERSION = '60'; // bump on each deploy; must match version.json
+const CRM_VERSION = '61'; // bump on each deploy; must match version.json
 const BUILD_DATE = '14 Jul 26'; // shown in the top-bar version label
 // Columns derived from joins/arrays that can't be ordered server-side — rendered as non-clickable headers
 const NON_SORTABLE_COLS = new Set(['contact_name','contact_first','contact_last','contact_email','name_2','email_2','name_3','email_3','name_4','email_4']);
@@ -2936,28 +2936,32 @@ async function runUpdateCustomers(){
     const kickoffTime = new Date().toISOString();
     setSub('Waiting for routine to write its summary to the log…');
 
+    // This routine sweeps ~7,000 customers and typically takes 30-50 minutes, so
+    // poll for up to 60 minutes (was 5 — which reported a false failure every time).
     let newRow = null;
-    for(let i = 0; i < 60; i++){
-      await new Promise(r=>setTimeout(r, 5000));
+    const UC_POLL_SECS = 20, UC_MAX_MINS = 60;
+    for(let i = 0; i < (UC_MAX_MINS*60)/UC_POLL_SECS; i++){
+      await new Promise(r=>setTimeout(r, UC_POLL_SECS*1000));
       const {data} = await sb.from('customer_sync_log')
         .select('*')
         .gte('run_at', kickoffTime)
         .eq('triggered_by','routine')
         .order('run_at',{ascending:false}).limit(1);
       if(data && data.length){ newRow = data[0]; break; }
-      setSub(`Waiting… (${(i+1)*5}s)`);
+      const mins = Math.floor(((i+1)*UC_POLL_SECS)/60), secs = ((i+1)*UC_POLL_SECS)%60;
+      setSub(`Running in the cloud… ${mins}m ${secs}s elapsed (typically ~45 min)`);
     }
 
     if(!newRow){
-      setStatus('Routine triggered but no log entry yet');
-      setSub('Routine was called but hasn\'t written to customer_sync_log within 5 minutes. Check the Claude Code console.');
+      setStatus('Still running — safe to leave this page');
+      setSub('The routine is running in the cloud but hasn\'t logged its summary within 60 minutes. It will finish on its own — check claude.ai/code, or reload later to see the result. Do NOT trigger it again.');
       hideDashProgress('uc');
       return;
     }
 
     setStatus('Complete');
     const d = (newRow.duration_ms || 0) / 1000;
-    setSub(`${d.toFixed(1)}s · ${newRow.updated_count} updated · ${newRow.created_count} new · ${newRow.unchanged_count} unchanged`);
+    setSub(`${d.toFixed(1)}s · ${(newRow.rows_updated||0)} updated · ${(newRow.rows_inserted||0)} new · ${(newRow.rows_unchanged||0)} unchanged`);
 
     if(result){
       result.style.display = 'block';
@@ -2965,19 +2969,19 @@ async function runUpdateCustomers(){
         <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px">
           <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:10px">
             <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px;text-align:center">
-              <div style="font-size:20px;font-weight:700;color:var(--blue)">${newRow.updated_count.toLocaleString()}</div>
+              <div style="font-size:20px;font-weight:700;color:var(--blue)">${(newRow.rows_updated||0).toLocaleString()}</div>
               <div style="font-size:11px;color:var(--text3)">Updated</div>
             </div>
             <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px;text-align:center">
-              <div style="font-size:20px;font-weight:700;color:var(--green)">${newRow.created_count.toLocaleString()}</div>
+              <div style="font-size:20px;font-weight:700;color:var(--green)">${(newRow.rows_inserted||0).toLocaleString()}</div>
               <div style="font-size:11px;color:var(--text3)">New</div>
             </div>
             <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px;text-align:center">
-              <div style="font-size:20px;font-weight:700;color:var(--text3)">${newRow.unchanged_count.toLocaleString()}</div>
+              <div style="font-size:20px;font-weight:700;color:var(--text3)">${(newRow.rows_unchanged||0).toLocaleString()}</div>
               <div style="font-size:11px;color:var(--text3)">Unchanged</div>
             </div>
             <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px;text-align:center">
-              <div style="font-size:20px;font-weight:700;color:${newRow.error_count?'var(--red)':'var(--text3)'}">${newRow.error_count.toLocaleString()}</div>
+              <div style="font-size:20px;font-weight:700;color:${((newRow.errors&&newRow.errors.length)||0)?'var(--red)':'var(--text3)'}">${((newRow.errors&&newRow.errors.length)||0).toLocaleString()}</div>
               <div style="font-size:11px;color:var(--text3)">Errors</div>
             </div>
           </div>
