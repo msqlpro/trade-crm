@@ -7,6 +7,10 @@ You are performing a KashFlow → Supabase customer delta sync for the Brainbox 
 - Supabase project: `ypfwecopdsielnouxwzv`. Customers live in the `customers` table.
 - The two tables are linked by `Code` (KashFlow code, e.g. KRIS09, FEWI01).
 
+# GOLDEN RULE — write only what actually changed
+
+Every UPDATE you issue fires an audit trigger that stores the full before/after row as JSON. Rewriting a row with values identical to the ones already there is not free: it costs runtime and writes a junk audit record. **Never write a row unless at least one value genuinely differs.** This applies to every step below, and especially to Step 6.6.
+
 # Name-prefix conventions (CRITICAL — read carefully)
 
 The KashFlow team uses two name prefixes as control signals. Respect them exactly.
@@ -145,14 +149,24 @@ For each MySQL row:
 
 ## Step 5 — Log the run
 
-INSERT into `customer_sync_log`:
-- `triggered_by`: 'routine' (or the value passed in by the caller if provided)
-- `filename`: `'kashflow-delta-' || sync_mode || '-' || now_iso`
-- `total_rows`: count of MySQL rows considered
-- `created_count`, `updated_count`, `unchanged_count`, `error_count`
-- `duration_ms`
-- `changes_summary`: array of `{kf_code, changed_fields:[...]}` — cap at 200 entries
-- `errors`: array — cap at 50
+INSERT into Supabase `customer_sync_log`. **Use exactly these column names — they are the real columns on the table:**
+
+| Column | Value |
+|---|---|
+| `run_type` | `'delta'` or `'full'` |
+| `source` | `'kashflow'` |
+| `triggered_by` | `'routine'`, or the value passed in by the caller if one was provided (the CRM button passes `crm-ui`) |
+| `delta_days` | days the delta window covered (NULL for a full sweep) |
+| `rows_checked` | count of MySQL rows considered |
+| `rows_inserted` | new customers created |
+| `rows_updated` | existing customers updated in Steps 1–4 |
+| `rows_unchanged` | rows compared but identical (no write issued) |
+| `rows_skipped` | rows deliberately not processed |
+| `duration_ms` | **actual elapsed milliseconds** for the whole run — measure it; do not leave it 0 or NULL |
+| `changes_summary` | jsonb array of `{kf_code, changed_fields:[...]}` — cap at 200 entries |
+| `errors` | jsonb array — cap at 50. Empty array `[]` if none. |
+
+Do NOT invent columns like `created_count`, `updated_count`, `unchanged_count`, `error_count` or `total_rows`. They do not exist on this table — the CRM reads the real ones above.
 
 ## Step 6 — Update sync_state
 
@@ -272,15 +286,17 @@ Include a count of proximity conflicts refreshed in the narrative summary (Step 
 
 If any of the three statements error, log to `customer_sync_log.errors` but do NOT fail the overall run. The main customer sync already succeeded — proximity is a secondary derived dataset.
 
-## Step 6.6 — Refresh order / spend figures from invoices
+## Step 6.6 — Refresh order / spend figures from invoices (DIFF ONLY)
 
-Recompute the six order/spend fields live from `brainbox_candy.invoice` (KashFlow sales invoices) and write them to Supabase `customers`. Run this every time (delta or full sweep) — the rolling 12-month windows move daily, so all invoiced customers need refreshing, not just changed ones.
+Recompute the six order/spend fields from `brainbox_candy.invoice` and write them to Supabase `customers` — **but write ONLY the customers whose figures have actually changed.**
 
-**Definitions (agreed):** spend is **ex-VAT** (`NetAmount`); quotes are excluded (`quote = 0`); credit notes net off naturally (they are negative `NetAmount`); rolling windows are anchored to the run date (`CURDATE()`); future-dated invoices are excluded from `last_order_date` but otherwise included in totals.
+**Why this matters — do NOT "simplify" this back into a blanket rewrite.** There are ~4,166 invoiced customers. On a typical day only a few dozen have a new invoice, or have a figure shift because the rolling 12/24-month window moved past one of their old invoices. The previous version of this routine rewrote all 4,166 rows on every run regardless: it took ~45 minutes of tool calls and generated ~8,000 junk audit records per night (which grew the audit log to 1.3 GB and pushed the project over its storage limit). Reading is cheap. Writing is not. **Read all, compare, write few.**
 
-**IMPORTANT — work entirely through MCP SQL calls and in memory. Do NOT write query results to disk, do NOT create or edit any files, and never touch anything under `~/.claude` or other system paths. If a tool offers to save a large result to a file, decline — instead page the data in small batches as below.**
+**Definitions (unchanged):** spend is **ex-VAT** (`NetAmount`); quotes are excluded (`quote = 0`); credit notes net off naturally (negative `NetAmount`); rolling windows anchor to the run date (`CURDATE()`); future-dated invoices are excluded from `last_order_date` but otherwise included in totals.
 
-**Step 6.6a — Pull the aggregate from MySQL in pages.** Join `invoice` to the raw `customers` table to resolve the KashFlow `Code` (this maps ~4,166 of 4,170 invoiced customers; `five_minute_customers` misses ~447 so do NOT use it here). Fetch in pages of **500 rows** ordered by `kf_code` using `LIMIT 500 OFFSET n`, and process + write each page (Step 6.6b) before fetching the next — so no single result set is ever large. The aggregate query (add `LIMIT/OFFSET` per page):
+**IMPORTANT — work entirely through MCP SQL calls and in memory. Do NOT write query results to disk, do NOT create or edit any files, and never touch anything under `~/.claude` or other system paths. If a tool offers to save a large result to a file, decline — page the data in small batches instead.**
+
+**Step 6.6a — Pull the freshly computed aggregate from MySQL.** Join `invoice` to the raw `customers` table to resolve the KashFlow `Code` (maps ~4,166 of 4,170 invoiced customers; `five_minute_customers` misses ~447, so do NOT use it here). Page in blocks of 500 with `LIMIT 500 OFFSET n`:
 
 ```sql
 SELECT c.Code AS kf_code,
@@ -294,10 +310,25 @@ FROM invoice i
 JOIN customers c ON c.CustomerID = i.CustomerID
 WHERE i.quote = 0 AND c.Code IS NOT NULL AND c.Code <> ''
 GROUP BY c.Code
-ORDER BY c.Code;
+ORDER BY c.Code
+LIMIT 500 OFFSET <n>;
 ```
 
-**Step 6.6b — Write to Supabase.** For each batch, update `customers` by `kf_code` using a single VALUES join (batches of ~500). Only the six fields plus `updated_at` are written — never touch any other column here.
+**Step 6.6b — Pull the CURRENT values already in Supabase** for the same page of `kf_code`s. This is a cheap read — do it for every page:
+
+```sql
+SELECT kf_code, invoice_count, all_time_spend, first_invoiced,
+       last_order_date, last_12m_spend, prior_12m_spend
+FROM customers
+WHERE kf_code IN (<the kf_codes from this page>);
+```
+
+**Step 6.6c — Compare in memory; write ONLY the differences.**
+
+Compare all six fields per `kf_code`. Treat values as equal after normalising: money to 2 decimal places, dates as plain dates (no time), and NULL == NULL. A customer is "changed" if **any one** of the six differs.
+
+- If **no** customer in the page changed -> **issue no SQL at all for that page** and move to the next.
+- If some changed -> issue ONE UPDATE containing only those rows:
 
 ```sql
 UPDATE customers AS c SET
@@ -310,16 +341,18 @@ UPDATE customers AS c SET
   updated_at      = now()
 FROM (VALUES
   ('BRIC01', 16, 1349.54, DATE '2013-01-16', DATE '2026-04-21', 408.84, 0.00)
-  -- ...one row per customer in this batch...
+  -- ...ONLY the customers from this page whose figures actually differ...
 ) AS v(kf_code, invoice_count, all_time_spend, first_invoiced, last_order_date, last_12m_spend, prior_12m_spend)
 WHERE c.kf_code = v.kf_code;
 ```
 
+**Sanity check — if you are about to write more than ~500 rows on a delta run, STOP and re-check your comparison logic.** That means the diff is not working and you are about to rewrite the whole table again. The two legitimate exceptions are: the very first run after this change (figures may be stale from the old method), and a day when an unusually large batch of invoices was raised.
+
 Notes:
 - Customers with **no** invoices are simply not in the aggregate; leave their existing values untouched (do not zero them).
-- This step refreshes figures only; it does NOT recompute `status` (active/dormant). If a spend-based status recalc is wanted, treat it as a separate task.
-- Count how many customer rows were updated and include it in the Step 7 narrative, e.g. "Order figures refreshed for 4,166 customers from live invoices."
+- This step refreshes figures only; it does NOT recompute `status` (active/dormant).
 - If MySQL is unreachable for this step specifically, log to `customer_sync_log.errors` but do NOT fail the overall run — the customer-detail sync already succeeded.
+- Report BOTH numbers in the narrative, e.g. "Order figures: 4,166 compared, 37 written."
 
 ## Step 6.7 — Refresh reorder call-list fields (Ordered pipeline customers)
 
@@ -327,10 +360,10 @@ The dashboard "Reorder Call List" chases customers in the **Ordered** pipeline s
 
 Run this **every time** (delta or full sweep). It is deliberately scoped to ONLY the customers currently in the Ordered stage — a tiny set (usually a handful) — so it always completes and stays reliable even if Step 6.6's big paged refresh is throttled or truncated. These three columns are routine-managed here and nowhere else.
 
-**Step 6.7a — Get the Ordered customers from Supabase:**
+**Step 6.7a — Get the Ordered customers from Supabase** (fetch their current values too, so you can diff):
 
 ```sql
-SELECT kf_customer_id
+SELECT kf_customer_id, last_invoice_date, last_invoice_number
 FROM customers
 WHERE pipeline_stage = 'Ordered' AND kf_customer_id IS NOT NULL;
 ```
@@ -362,7 +395,7 @@ UPDATE customers AS c SET
   updated_at             = now()
 FROM (VALUES
   (9659402, DATE '2026-06-26', 70323, 'https://api.kashflow.com/...')
-  -- one row per Ordered customer returned in 6.7b
+  -- one row per CHANGED Ordered customer only (skip any whose date+number already match)
 ) AS v(kf_id, inv_date, inv_number, permalink)
 WHERE c.kf_customer_id = v.kf_id;
 ```
@@ -380,6 +413,8 @@ Rows considered: X
   -> Updated: Z (brief list of notable field changes)
   -> Unchanged: W
   -> Errors: E
+Order figures: C compared, U written
+Reorder fields: O Ordered customers (P changed)
 Duration: N seconds
 
 Observations:
@@ -387,7 +422,7 @@ Observations:
 
 # Error handling
 
-- If MySQL is unreachable: log to `customer_sync_log` with `error_count=0` and `errors=[{top_level:"MySQL unreachable"}]`, do NOT update `sync_state`. Return the error clearly.
+- If MySQL is unreachable: log to `customer_sync_log` with `errors=[{top_level:"MySQL unreachable"}]`, do NOT update `sync_state`. Return the error clearly.
 - If any individual row fails to write: record in `errors` array, continue with the rest. Only treat as total failure if >10% of rows error.
 - Never retry destructive operations. Log and move on.
 
@@ -402,6 +437,8 @@ End your response with exactly this block (the CRM button parses it):
   "created": N,
   "updated": N,
   "unchanged": N,
+  "spend_compared": N,
+  "spend_written": N,
   "errors": N,
   "duration_ms": N,
   "narrative": "..."
