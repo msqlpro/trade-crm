@@ -343,8 +343,8 @@ const SURL = 'https://ypfwecopdsielnouxwzv.supabase.co';
 const SKEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlwZndlY29wZHNpZWxub3V4d3p2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3NDMyNjgsImV4cCI6MjA5MTMxOTI2OH0.ll4Epk7es-knrgbG6j0e5xo59OEdMFwpxeWmMs9RfpU';
 const sb = supabase.createClient(SURL, SKEY);
 const PG = 250;
-const CRM_VERSION = '57'; // bump on each deploy; must match version.json
-const BUILD_DATE = '25 Jun 26'; // shown in the top-bar version label
+const CRM_VERSION = '58'; // bump on each deploy; must match version.json
+const BUILD_DATE = '14 Jul 26'; // shown in the top-bar version label
 // Columns derived from joins/arrays that can't be ordered server-side — rendered as non-clickable headers
 const NON_SORTABLE_COLS = new Set(['contact_name','contact_first','contact_last','contact_email','name_2','email_2','name_3','email_3','name_4','email_4']);
 // Display key -> real orderable customer column
@@ -2329,8 +2329,68 @@ function renderImportActivity(){
       <input type="file" id="act-file" accept=".csv,.xls,.xlsx" style="display:none" onchange="handleActFile(this.files[0])"/>
       <div id="act-err" class="inline-err"></div>
       <div id="act-confirm"></div>
+
+      <div style="margin-top:28px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <div style="font-size:14px;font-weight:700">Import log</div>
+          <div style="font-size:12px;color:var(--text3)">Activities created by upload</div>
+        </div>
+        <div id="act-history" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px">
+          <div class="ml-syncing"><span class="spinner"></span> Loading…</div>
+        </div>
+      </div>
     </div>
   `);
+  loadActImportHistory();
+}
+
+async function loadActImportHistory(){
+  const el=document.getElementById('act-history');
+  if(!el)return;
+  const{data,error}=await sb.from('activity_import_log').select('*').order('created_at',{ascending:false}).limit(25);
+  if(error){el.innerHTML='<div class="inline-err">Could not load import log: '+x(error.message)+'</div>';return;}
+  if(!data||!data.length){el.innerHTML='<div style="font-size:13px;color:var(--text3)">No activity imports yet — the log starts from your next upload.</div>';return;}
+  _actHistory={};
+  const th='padding:6px 10px;text-align:left;color:var(--text2);border-bottom:1px solid var(--border);font-weight:600';
+  const td='padding:8px 10px;border-bottom:1px solid var(--border);vertical-align:top';
+  el.innerHTML=`<table style="width:100%;border-collapse:collapse;font-size:12px">
+    <thead><tr>
+      <th style="${th}">Date</th>
+      <th style="${th}">Activity</th>
+      <th style="${th}">File</th>
+      <th style="${th}">By</th>
+      <th style="${th};text-align:right">Rows</th>
+      <th style="${th};text-align:right">Ticked</th>
+      <th style="${th};text-align:right">Not found</th>
+    </tr></thead>
+    <tbody>${data.map(b=>{
+      _actHistory[b.id]=b;
+      const names=(b.activity_names||[]);
+      const failed=b.status&&b.status!=='complete';
+      return `<tr>
+      <td style="${td};color:var(--text3);font-family:var(--mono);white-space:nowrap">${fd(b.created_at)}</td>
+      <td style="${td};font-weight:600">${names.length?names.map(n=>x(n)).join(', '):'—'}${failed?` <span style="color:var(--red);font-weight:500">· failed</span>`:''}</td>
+      <td style="${td};color:var(--text2)">${x(b.filename||'—')}</td>
+      <td style="${td};color:var(--text2)">${x(b.uploaded_by_email||'—')}</td>
+      <td style="${td};text-align:right;color:var(--text2)">${b.row_count||0}</td>
+      <td style="${td};text-align:right;color:var(--green);font-weight:600">${b.linked_count||0}</td>
+      <td style="${td};text-align:right">${(b.unmatched_count||0)>0
+        ? `<a href="#" onclick="showActUnmatched('${b.id}');return false" style="color:var(--amber);font-weight:600;text-decoration:underline">${b.unmatched_count}</a>`
+        : `<span style="color:var(--text3)">0</span>`}</td>
+    </tr>${failed&&b.error_message?`<tr><td colspan="7" style="padding:0 10px 8px;border-bottom:1px solid var(--border);font-size:11px;color:var(--red)">${x(b.error_message)}</td></tr>`:''}`;
+    }).join('')}</tbody>
+  </table>`;
+}
+
+let _actHistory={};
+function showActUnmatched(id){
+  const b=_actHistory[id];if(!b)return;
+  const codes=(b.unmatched_codes||[]);
+  const total=b.unmatched_count||codes.length;
+  openModal('Codes not found — '+((b.activity_names||[]).join(', ')||'import'),
+    `<div style="font-size:13px;color:var(--text2);margin-bottom:10px">${total} code${total===1?'':'s'} in <strong>${x(b.filename||'the file')}</strong> did not match a customer${codes.length<total?` (first ${codes.length} shown)`:''}.</div>
+     <div style="background:var(--amber-bg);border-radius:var(--r);padding:10px 12px;font-size:11px;font-family:var(--mono);color:var(--amber);max-height:280px;overflow-y:auto">${codes.map(c=>x(c)).join(', ')||'—'}</div>`,
+    `<button class="btn" onclick="closeModal()">Close</button>`);
 }
 
 function handleActDrop(e){
@@ -2418,7 +2478,24 @@ async function runActImport(){
   if(!activityNames.length){runEl.innerHTML='<div class="inline-err">No activity name or codes found in the file.</div>';return;}
   runEl.innerHTML='<div class="ml-syncing"><span class="spinner"></span> Importing…</div>';
 
-  let totalLinked=0;const totalUnmatched=[];const createdCols=[];
+  let totalLinked=0;const totalUnmatched=[];const createdCols=[];const campIds=[];
+  const logRun=async(status,errMsg)=>{
+    try{
+      await sb.from('activity_import_log').insert({
+        uploaded_by:S.user?.id||null,
+        uploaded_by_email:(S.user&&S.user.email)||null,
+        filename:filename||'activity.csv',
+        row_count:parsed.rows.length,
+        activity_names:createdCols,
+        campaign_ids:campIds,
+        linked_count:totalLinked,
+        unmatched_count:totalUnmatched.length,
+        unmatched_codes:totalUnmatched.slice(0,500),
+        status,
+        error_message:errMsg||null
+      });
+    }catch(e){console.error('activity import log failed',e);}
+  };
   try{
     for(const nm of activityNames){
       let cam=S.campaigns.find(c=>c.name.toLowerCase()===nm.toLowerCase());
@@ -2449,10 +2526,16 @@ async function runActImport(){
       S.custCols=S.custCols.filter(c=>c.key!==key);
       S.custCols.unshift({key,label:cam.name,visible:true});
       createdCols.push(cam.name);
+      campIds.push(cam.id);
     }
     await saveColPrefs();
-    try{await sb.from('import_batches').insert({source:'activity',filename:filename||'activity.csv',row_count:parsed.rows.length,status:'complete',created_count:totalLinked,updated_count:0,error_count:totalUnmatched.length});}catch(e){}
-  }catch(err){runEl.innerHTML='<div class="inline-err">Error '+x(err.message)+'</div>';return;}
+    await logRun('complete',null);
+  }catch(err){
+    await logRun('failed',err.message);
+    runEl.innerHTML='<div class="inline-err">Error '+x(err.message)+'</div>';
+    loadActImportHistory();
+    return;
+  }
 
   runEl.innerHTML=`
     <div class="import-results" style="margin-top:4px">
@@ -2464,6 +2547,7 @@ async function runActImport(){
     ${totalUnmatched.length?`<div style="margin-top:10px;background:var(--amber-bg);border-radius:var(--r);padding:8px 12px;font-size:11px;font-family:var(--mono);color:var(--amber);max-height:120px;overflow-y:auto">Codes not matched to a customer: ${totalUnmatched.slice(0,60).map(u=>x(u)).join(', ')}${totalUnmatched.length>60?' …':''}</div>`:''}
     <div style="margin-top:14px;display:flex;gap:8px"><button class="btn btn-primary" onclick="go('customers')">View Customers</button><button class="btn" onclick="renderImportActivity()">Import another</button></div>`;
   _actImport=null;
+  loadActImportHistory();
 }
 
 // ═══ MAILERLITE SYNC ═══
