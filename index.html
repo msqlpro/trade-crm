@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Brainbox CRM</title><!-- v20260701153337 -->
+<title>Brainbox CRM</title><!-- v20260715081426 -->
 <link rel="icon" type="image/svg+xml" href="favicon.svg"/>
 <link rel="alternate icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23d6006e'/%3E%3Ctext x='16' y='16.8' font-family='Arial,sans-serif' font-size='11.5' font-weight='700' fill='%23fff' text-anchor='middle' dominant-baseline='central' textLength='23' lengthAdjust='spacingAndGlyphs'%3ECRM%3C/text%3E%3C/svg%3E"/>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -303,6 +303,7 @@ tbody tr{transition:background .1s}tbody tr:hover{background:var(--surface2);cur
       <button class="sb-item" id="nav-dashboard" onclick="go('dashboard')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>Dashboard</button>
       <button class="sb-item" id="nav-customers" onclick="go('customers')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>Customers<span class="sb-badge" id="sb-cc"></span></button>
       <button class="sb-item" id="nav-pipeline" onclick="go('pipeline')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="4" height="18" rx="1"/><rect x="10" y="8" width="4" height="13" rx="1"/><rect x="17" y="5" width="4" height="16" rx="1"/></svg>Pipeline</button>
+      <button class="sb-item" id="nav-starred" onclick="go('starred')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>Starred<span class="sb-badge" id="sb-star-cc"></span></button>
       <button class="sb-item" id="nav-campaigns" onclick="go('campaigns')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>Campaigns</button>
       <div class="sb-divider"></div>
       <button class="sb-item" id="nav-import" onclick="go('import')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>Import Customers</button>
@@ -344,8 +345,8 @@ const SURL = 'https://ypfwecopdsielnouxwzv.supabase.co';
 const SKEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlwZndlY29wZHNpZWxub3V4d3p2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3NDMyNjgsImV4cCI6MjA5MTMxOTI2OH0.ll4Epk7es-knrgbG6j0e5xo59OEdMFwpxeWmMs9RfpU';
 const sb = supabase.createClient(SURL, SKEY);
 const PG = 250;
-const CRM_VERSION = '61'; // bump on each deploy; must match version.json
-const BUILD_DATE = '14 Jul 26'; // shown in the top-bar version label
+const CRM_VERSION = '62'; // bump on each deploy; must match version.json
+const BUILD_DATE = '15 Jul 26'; // shown in the top-bar version label
 // Columns derived from joins/arrays that can't be ordered server-side — rendered as non-clickable headers
 const NON_SORTABLE_COLS = new Set(['contact_name','contact_first','contact_last','contact_email','name_2','email_2','name_3','email_3','name_4','email_4']);
 // Display key -> real orderable customer column
@@ -363,6 +364,7 @@ let TEAM = [];         // [{id,name,active,sort_order}] team members
 let S = {
   user:null, view:'dashboard', custId:null,
   custPage:0, custSearch:'', custStatus:'', custShrigOnly:false, custShowDoubleStar:true,
+  custPipelineOnly:false, custStarredOnly:false,
   taskFilter:'open', etypes:{}, tags:[], custEngagement:'',
   mlKey:'', importData:null, custColsOpen:false,
   custCols:null, // loaded per user from Supabase
@@ -455,7 +457,7 @@ async function boot(){
     });
   }
   ensureCampCols(); // new activity columns auto-show for every user, pinned to the front block
-  refreshCounts();go('dashboard');
+  refreshCounts();refreshStarBadge();go('dashboard');
 }
 
 async function loadEtypes(){
@@ -541,6 +543,7 @@ function go(view,params={}){
     mc.className='page-kanban';
     renderPipeline();
   }
+  else if(view==='starred'){setTitle('Starred Pipeline Customers');renderStarred();}
   else if(view==='import'){setTitle('Import Centre');renderImport();}
   else if(view==='import-activity'){setTitle('Import Activities');renderImportActivity();}
   else if(view==='campaigns'){setTitle('Campaigns');renderCampaigns();}
@@ -692,7 +695,9 @@ async function renderCustomers(){
     p_search: S.custSearch||'',
     p_status: S.custStatus||'',
     p_engagement: S.custEngagement ? parseInt(S.custEngagement) : 0,
-    p_filters: serializeColFilters()
+    p_filters: serializeColFilters(),
+    p_pipeline_only: !!S.custPipelineOnly,
+    p_starred_only: !!S.custStarredOnly
   });
   if(error){
     setPage('<div style="padding:32px;color:var(--red)"><strong>Error:</strong> '+error.message+'</div>');
@@ -767,6 +772,8 @@ async function renderCustomers(){
       <div class="pills">
         ${['','active','prospect','dormant'].map(s=>`<button class="pill ${S.custStatus===s?'on':''}" onclick="custFilter('${s}')">${s?s.charAt(0).toUpperCase()+s.slice(1):'All'}</button>`).join('')}
         <button class="pill ${S.custShrigOnly?'on':''}" onclick="custToggleShrig()" style="${S.custShrigOnly?'':''}border-color:${S.custShrigOnly?'':'#16a34a'};color:${S.custShrigOnly?'':'#16a34a'}">🌿 Shrig Only</button>
+        <button class="pill ${S.custPipelineOnly?'on':''}" onclick="custTogglePipelineOnly()" title="Show only customers currently on the pipeline board">📊 In Pipeline</button>
+        <button class="pill ${S.custStarredOnly?'on':''}" onclick="custToggleStarredOnly()" title="Show only starred pipeline customers" style="${S.custStarredOnly?'background:#e0a800;border-color:#e0a800;color:#fff':'border-color:#e0a800;color:#b8860b'}">★ Starred</button>
       </div>
     </div>
     <div class="toolbar" style="margin-top:0;margin-bottom:14px;flex-shrink:0">
@@ -833,6 +840,8 @@ function custPg(d){S.custPage+=d;renderCustomers();}
 function daysSince(d){if(!d)return 9999;return Math.floor((Date.now()-new Date(d))/864e5);}
 function custToggleHidden(){S.custShowHidden=!S.custShowHidden;S.custPage=0;renderCustomers();}
 function custToggleDoubleStar(){S.custShowDoubleStar=!S.custShowDoubleStar;S.custPage=0;renderCustomers();}
+function custTogglePipelineOnly(){S.custPipelineOnly=!S.custPipelineOnly;if(!S.custPipelineOnly)S.custStarredOnly=false;S.custPage=0;renderCustomers();}
+function custToggleStarredOnly(){S.custStarredOnly=!S.custStarredOnly;if(S.custStarredOnly)S.custPipelineOnly=true;S.custPage=0;renderCustomers();}
 
 function visibleCols(){return (S.custCols||DEFAULT_COLS).filter(c=>c.visible);}
 
@@ -1914,6 +1923,102 @@ async function addCardNote(id,event){
   if(error){alert(error.message);return;}
   await renderPipeline();
   const p=document.getElementById('cnotes-'+id);if(p)p.style.display='block';
+}
+
+// ═══ STARRED PIPELINE CUSTOMERS ═══
+let _starData=[];      // all pipeline customers loaded for this page
+let _starSearch='';
+let _starOnly=false;   // page view filter: show only starred
+
+function pipelineStageOrder(){
+  // active stages in board order; STAGE_META is hydrated at boot, PIPELINE_STAGES is the fallback
+  if(STAGE_META&&STAGE_META.length) return STAGE_META.slice().sort((a,b)=>(a.sort_order||0)-(b.sort_order||0)).map(s=>s.name);
+  return PIPELINE_STAGES.slice();
+}
+
+async function renderStarred(){
+  const mc=document.getElementById('main-content');
+  mc.innerHTML='<div class="loading-page"><span class="spinner"></span> Loading pipeline customers…</div>';
+  const{data,error}=await sb.from('customers')
+    .select('id,company_name,pipeline_stage,pipeline_starred,owner,all_time_spend,store_type,last_order_date,country_name')
+    .not('pipeline_stage','is',null).neq('pipeline_stage','Off-Pipeline')
+    .order('company_name');
+  if(error){setPage('<div style="padding:32px;color:var(--red)"><strong>Error:</strong> '+error.message+'</div>');return;}
+  _starData=data||[];
+  setPage(
+    '<div style="padding:20px;display:flex;flex-direction:column;height:100%;overflow:hidden">'
+    +'<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px 16px;margin-bottom:14px;flex-shrink:0">'
+      +'<div style="font-size:13px;color:var(--text2);line-height:1.5;margin-bottom:12px">Star the pipeline customers you want to focus on. Starred customers are shared with the whole team, and can be filtered on the <strong>Customers</strong> tab with the ★ Starred toggle.</div>'
+      +'<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">'
+        +'<div class="search-wrap" style="max-width:340px;flex:1;min-width:220px"><svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>'
+        +'<input class="search-input" type="search" id="star-search" placeholder="Search pipeline customers…" value="'+x(_starSearch)+'" oninput="starSearch(this.value)"/></div>'
+        +'<div class="pills">'
+          +'<button class="pill '+(!_starOnly?'on':'')+'" onclick="starSetView(false)">All pipeline</button>'
+          +'<button class="pill '+(_starOnly?'on':'')+'" onclick="starSetView(true)" style="'+(_starOnly?'background:#e0a800;border-color:#e0a800;color:#fff':'border-color:#e0a800;color:#b8860b')+'">★ Starred only</button>'
+        +'</div>'
+        +'<div class="spacer" style="flex:1"></div>'
+        +'<span id="star-count" style="font-size:12px;color:var(--text3)"></span>'
+      +'</div>'
+    +'</div>'
+    +'<div id="star-list" style="flex:1;overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-radius:var(--r)"></div>'
+    +'</div>'
+  );
+  renderStarList();
+}
+
+function renderStarList(){
+  const box=document.getElementById('star-list');
+  if(!box)return;
+  const term=_starSearch.trim().toLowerCase();
+  let rows=_starData.filter(c=>!_starOnly||c.pipeline_starred);
+  if(term) rows=rows.filter(c=>(c.company_name||'').toLowerCase().includes(term));
+  const starredTotal=_starData.filter(c=>c.pipeline_starred).length;
+  const cnt=document.getElementById('star-count');
+  if(cnt)cnt.textContent=rows.length+' shown · '+starredTotal+' starred · '+_starData.length+' in pipeline';
+  if(!rows.length){box.innerHTML='<div style="padding:40px;text-align:center;color:var(--text3);font-size:13px">'+(_starOnly?'No starred customers yet — tap a star to add one.':'No matching pipeline customers.')+'</div>';return;}
+  const order=pipelineStageOrder();
+  const rank=n=>{const i=order.indexOf(n);return i<0?999:i;};
+  rows.sort((a,b)=>rank(a.pipeline_stage)-rank(b.pipeline_stage)||(a.company_name||'').localeCompare(b.company_name||''));
+  let html='';let curStage=null;
+  rows.forEach(c=>{
+    if(c.pipeline_stage!==curStage){
+      curStage=c.pipeline_stage;
+      const col=STAGE_COLOURS[curStage]||'#94a3b8';
+      const stageCount=rows.filter(r=>r.pipeline_stage===curStage).length;
+      html+='<div style="position:sticky;top:0;z-index:1;background:var(--surface2);border-bottom:1px solid var(--border);padding:8px 16px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:'+col+'">'+x(curStage)+' <span style="color:var(--text3);font-weight:500">· '+stageCount+'</span></div>';
+    }
+    const on=!!c.pipeline_starred;
+    html+='<div class="drow" style="align-items:center;cursor:pointer" onclick="go(\'customer-detail\',{id:\''+c.id+'\'})">'
+      +'<button title="'+(on?'Unstar':'Star')+'" onclick="event.stopPropagation();toggleStar(\''+c.id+'\')" style="background:none;border:none;padding:2px;line-height:1;font-size:20px;color:'+(on?'#e0a800':'var(--text3)')+';flex-shrink:0">'+(on?'★':'☆')+'</button>'
+      +'<div style="flex:1;min-width:0">'
+        +'<div style="font-size:13.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+x(c.company_name)+'</div>'
+        +'<div style="font-size:11px;color:var(--text3);margin-top:1px">'+[c.store_type?x(c.store_type):'',c.country_name?x(c.country_name):'',c.last_order_date?'Last: '+fd(c.last_order_date):''].filter(Boolean).join(' · ')+'</div>'
+      +'</div>'
+      +'<div style="font-size:12px;color:var(--text2);width:120px;text-align:right;flex-shrink:0">'+(c.owner?'👤 '+x(c.owner):'<span style="color:var(--text3)">Unassigned</span>')+'</div>'
+      +'<div class="td-mono" style="font-size:12px;width:100px;text-align:right;flex-shrink:0">'+(c.all_time_spend?'£'+N2(c.all_time_spend):'—')+'</div>'
+    +'</div>';
+  });
+  box.innerHTML=html;
+}
+
+let _starT;
+function starSearch(v){_starSearch=v;clearTimeout(_starT);_starT=setTimeout(renderStarList,150);}
+function starSetView(only){_starOnly=only;renderStarred();}
+
+async function toggleStar(id){
+  const c=_starData.find(r=>r.id===id);if(!c)return;
+  const next=!c.pipeline_starred;
+  c.pipeline_starred=next; // optimistic
+  renderStarList();
+  const{error}=await sb.from('customers').update({pipeline_starred:next}).eq('id',id);
+  if(error){c.pipeline_starred=!next;renderStarList();alert(error.message);return;}
+  refreshStarBadge();
+}
+
+async function refreshStarBadge(){
+  const{count}=await sb.from('customers').select('*',{count:'exact',head:true}).eq('pipeline_starred',true);
+  const el=document.getElementById('sb-star-cc');
+  if(el)el.textContent=(count!=null&&count>0)?count:'';
 }
 
 // ═══ IMPORT CENTRE ═══
