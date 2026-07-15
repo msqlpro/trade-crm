@@ -85,12 +85,13 @@ input.priceedit{width:64px;padding:3px 5px;border:1px solid var(--accent);border
     <h2>Cost &amp; fee assumptions (shared across the team · ex-VAT)</h2>
     <div class="assumptions">
       <div class="f"><label>Cost / sheet £</label><input id="a_cost" type="number" step="0.01"></div>
+      <div class="f"><label>Sheets / pack</label><input id="a_spp" type="number" step="1"></div>
       <div class="f"><label>Amazon referral %</label><input id="a_ref" type="number" step="0.5"></div>
       <div class="f"><label>FBA fee £ / unit</label><input id="a_fba" type="number" step="0.01"></div>
       <div class="f"><label>FBM postage £ / unit</label><input id="a_fbm" type="number" step="0.01"></div>
       <div class="f"><label>VAT %</label><input id="a_vat" type="number" step="1"></div>
       <button class="btn btn-primary" onclick="saveConfig()">Save assumptions</button>
-      <span class="muted" style="font-size:12px">Profit = (sale price ÷ (1+VAT)) − cost − referral − fulfilment</span>
+      <span class="muted" style="font-size:12px">Profit = (sale price ÷ (1+VAT)) − (cost/sheet × sheets/pack) − referral − fulfilment</span>
     </div>
   </div>
 
@@ -149,10 +150,10 @@ input.priceedit{width:64px;padding:3px 5px;border:1px solid var(--accent);border
 const SB_URL='https://ypfwecopdsielnouxwzv.supabase.co';
 const SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlwZndlY29wZHNpZWxub3V4d3p2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3NDMyNjgsImV4cCI6MjA5MTMxOTI2OH0.ll4Epk7es-knrgbG6j0e5xo59OEdMFwpxeWmMs9RfpU';
 const sb=supabase.createClient(SB_URL,SB_KEY);
-const VERSION='1';
+const VERSION='2';
 document.getElementById('ver').textContent='v'+VERSION;
 
-let ROWS=[], CFG={cost_per_sheet:0.30,referral_pct:15,fba_fee:1.80,fbm_postage:1.20,vat_rate:20};
+let ROWS=[], CFG={cost_per_sheet:0.30,referral_pct:15,fba_fee:1.80,fbm_postage:1.20,vat_rate:20,sheets_per_pack:2};
 let sel=new Set();
 let sort={key:'stock',dir:-1};
 let filters={slow:false,sale:false,xmas:false,amz0:false};
@@ -166,8 +167,9 @@ function calc(r){
   const saleInc=r.list_price_incvat*(1-disc/100);
   const netEx=saleInc/vat;
   const referral=(CFG.referral_pct/100)*netEx;
-  const fba=netEx-CFG.cost_per_sheet-referral-CFG.fba_fee;
-  const fbm=netEx-CFG.cost_per_sheet-referral-CFG.fbm_postage;
+  const packCost=CFG.cost_per_sheet*(CFG.sheets_per_pack||2);
+  const fba=netEx-packCost-referral-CFG.fba_fee;
+  const fbm=netEx-packCost-referral-CFG.fbm_postage;
   return {saleInc,netEx,fba,fbm,
     fbaM:netEx>0?fba/netEx*100:0, fbmM:netEx>0?fbm/netEx*100:0};
 }
@@ -180,6 +182,7 @@ async function loadAll(){
   document.getElementById('a_fba').value=CFG.fba_fee;
   document.getElementById('a_fbm').value=CFG.fbm_postage;
   document.getElementById('a_vat').value=CFG.vat_rate;
+  document.getElementById('a_spp').value=CFG.sheets_per_pack||2;
   const {data,error}=await sb.from('wrap_monitor_products').select('*');
   if(error){document.getElementById('tbody').innerHTML='<tr><td colspan="14" class="loading">Error: '+error.message+'</td></tr>';return;}
   ROWS=data||[];
@@ -196,9 +199,10 @@ async function saveConfig(){
   CFG.fba_fee=parseFloat(document.getElementById('a_fba').value)||0;
   CFG.fbm_postage=parseFloat(document.getElementById('a_fbm').value)||0;
   CFG.vat_rate=parseFloat(document.getElementById('a_vat').value)||20;
+  CFG.sheets_per_pack=parseFloat(document.getElementById('a_spp').value)||2;
   await sb.from('wrap_monitor_config').update({
     cost_per_sheet:CFG.cost_per_sheet,referral_pct:CFG.referral_pct,fba_fee:CFG.fba_fee,
-    fbm_postage:CFG.fbm_postage,vat_rate:CFG.vat_rate,updated_at:new Date().toISOString()
+    fbm_postage:CFG.fbm_postage,vat_rate:CFG.vat_rate,sheets_per_pack:CFG.sheets_per_pack,updated_at:new Date().toISOString()
   }).eq('id',1);
   flash();render();
 }
