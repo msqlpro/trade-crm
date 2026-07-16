@@ -1820,8 +1820,8 @@ async function renderPipeline(){
         +'<div onclick="event.stopPropagation()" style="margin-top:6px">'
         +'<button onclick="toggleCardNotes(\''+c.id+'\',event)" title="Show/hide notes" style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;cursor:pointer;color:'+(ncount?'var(--blue)':'var(--text3)')+';font-size:14px;font-weight:600;padding:6px 12px;display:inline-flex;align-items:center;gap:6px;line-height:1">💬 '+ncount+'</button>'
         +'</div>'
-        +'<div id="cnotes-'+c.id+'" onclick="event.stopPropagation()" style="display:none;margin-top:6px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);max-height:230px;overflow-y:auto">'
-        +notesInner
+        +'<div id="cnotes-'+c.id+'" onclick="event.stopPropagation()" style="display:none;margin-top:6px;border:1px solid var(--border);border-radius:6px;background:var(--surface2)">'
+        +'<div style="max-height:170px;overflow-y:auto">'+notesInner+'</div>'
         +'<div style="padding:6px 9px;border-top:1px solid var(--border);background:var(--surface)">'
         +'<textarea id="cnote-in-'+c.id+'" rows="2" placeholder="Add a note…" onblur="addCardNote(\''+c.id+'\',event)" style="width:100%;font-size:12px;padding:6px;border:1px solid var(--border);border-radius:5px;background:var(--surface);color:var(--text);resize:vertical;font-family:var(--f);box-sizing:border-box"></textarea>'
         +'<div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px"><span style="font-size:10px;color:var(--text3)">'+(currentUser()?x(currentUser()):'set your name ↙')+'</span><button class="btn btn-xs btn-primary" onclick="addCardNote(\''+c.id+'\',event)">Add</button></div>'
