@@ -1356,7 +1356,7 @@ function notesCard(id,notes){
     <div class="dcard-head"><span class="dcard-title">Notes (${notes.length})</span></div>
     ${rows}
     <div style="padding:10px 16px;border-top:1px solid var(--border)">
-      <textarea id="new-note" rows="2" placeholder="Add a note…" style="width:100%;font-size:13px;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);resize:vertical;font-family:var(--f);box-sizing:border-box"></textarea>
+      <textarea id="new-note" rows="2" placeholder="Add a note…" onblur="addNote('${id}',true)" style="width:100%;font-size:13px;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);resize:vertical;font-family:var(--f);box-sizing:border-box"></textarea>
       <div style="display:flex;align-items:center;justify-content:space-between;margin-top:6px;gap:8px">
         <span style="font-size:11px;color:var(--text3)">Signed as <strong>${who?x(who):'— pick who you are, bottom-left'}</strong></span>
         <button class="btn btn-primary btn-sm" onclick="addNote('${id}')">Add Note</button>
@@ -1364,8 +1364,12 @@ function notesCard(id,notes){
     </div></div>`;
 }
 async function addNote(id){
+  if(window._noteSaving)return;
   const el=document.getElementById('new-note');const note=(el?.value||'').trim();if(!note)return;
+  window._noteSaving=true;
   const{error}=await sb.from('pipeline_notes').insert({customer_id:id,note,author:currentUser()||'Unknown'});
+  if(el)el.value='';
+  window._noteSaving=false;
   if(error){alert(error.message);return;}
   go('customer-detail',{id});
 }
