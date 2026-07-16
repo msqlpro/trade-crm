@@ -345,7 +345,7 @@ const SURL = 'https://ypfwecopdsielnouxwzv.supabase.co';
 const SKEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlwZndlY29wZHNpZWxub3V4d3p2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3NDMyNjgsImV4cCI6MjA5MTMxOTI2OH0.ll4Epk7es-knrgbG6j0e5xo59OEdMFwpxeWmMs9RfpU';
 const sb = supabase.createClient(SURL, SKEY);
 const PG = 250;
-const CRM_VERSION = '63'; // bump on each deploy; must match version.json
+const CRM_VERSION = '64'; // bump on each deploy; must match version.json
 const BUILD_DATE = '16 Jul 26'; // shown in the top-bar version label
 // Columns derived from joins/arrays that can't be ordered server-side — rendered as non-clickable headers
 const NON_SORTABLE_COLS = new Set(['contact_name','contact_first','contact_last','contact_email','name_2','email_2','name_3','email_3','name_4','email_4']);
@@ -1882,12 +1882,32 @@ function pipeSelect(id,name){
   document.getElementById('pipe-results').style.display='none';
 }
 
+// Returns pipeline customers with the same company name already owned by (potentially) someone else.
+async function findPipelineDupes(name,selfId,intendedOwner){
+  const term=(name||'').trim(); if(!term) return [];
+  const {data}=await sb.from('customers')
+    .select('id,company_name,owner,pipeline_stage')
+    .not('pipeline_stage','is',null)
+    .not('owner','is',null)
+    .ilike('company_name',term); // case-insensitive exact-name match
+  if(!data) return [];
+  // Different record already in a pipeline = conflict. Same record only conflicts if a DIFFERENT owner already holds it.
+  return data.filter(r=> r.id===selfId ? (r.owner && r.owner!==intendedOwner) : true);
+}
+function dupConfirm(dups){
+  const lines=dups.map(d=>'  • '+(d.company_name||'')+' — '+(d.owner||'?')+' ('+(d.pipeline_stage||'')+')').join('\n');
+  return confirm('⚠️  Possible duplicate\n\nThis customer already appears in the pipeline under another owner:\n\n'+lines+'\n\nAdding it may mean two people end up working the same account.\n\nAdd anyway?');
+}
+
 async function pipeAddSelected(){
   const id=document.getElementById('pipe-sel-id').value;
   const stage=document.getElementById('pipe-stage-sel').value;
   const owner=document.getElementById('pipe-owner-sel')?.value||null;
   const msg=document.getElementById('pipe-msg');
   if(!id){msg.textContent='Please select a customer first';msg.style.color='var(--red)';setTimeout(()=>{msg.textContent='';msg.style.color='var(--green)';},2000);return;}
+  const dupName=document.getElementById('pipe-search').value||'';
+  const dups=await findPipelineDupes(dupName,id,owner);
+  if(dups.length && !dupConfirm(dups))return;
   await sb.from('customers').update({pipeline_stage:stage,owner:owner}).eq('id',id);
   document.getElementById('pipe-search').value='';
   document.getElementById('pipe-sel-id').value='';
@@ -3596,6 +3616,10 @@ async function saveCustomer(id){
   const gv=id=>document.getElementById(id)?.value?.trim()||null;
   const payload={company_name:name,kf_code:gv('ac-kf'),status:document.getElementById('ac-status').value,country_name:gv('ac-country'),notes:gv('ac-notes'),pipeline_stage:document.getElementById('ac-pipe').value||null,owner:document.getElementById('ac-owner')?.value||null,phone:gv('ac-phone'),mobile:gv('ac-mobile'),source:gv('ac-source'),store_type:gv('ac-store-type'),address_1:gv('ac-addr1'),address_2:gv('ac-addr2'),postcode:gv('ac-postcode'),website:gv('ac-website')};
   const spend=document.getElementById('ac-spend')?.value;if(spend)payload.all_time_spend=parseFloat(spend);
+  if(payload.pipeline_stage){
+    const dups=await findPipelineDupes(name,id||null,payload.owner);
+    if(dups.length && !dupConfirm(dups))return;
+  }
   const{error}=id?await sb.from('customers').update(payload).eq('id',id):await sb.from('customers').insert(payload);
   if(error){err.textContent=error.message;return;}
   closeModal();refreshCounts();
