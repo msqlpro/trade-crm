@@ -305,6 +305,7 @@ tbody tr{transition:background .1s}tbody tr:hover{background:var(--surface2);cur
       <button class="sb-item" id="nav-pipeline" onclick="go('pipeline')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="4" height="18" rx="1"/><rect x="10" y="8" width="4" height="13" rx="1"/><rect x="17" y="5" width="4" height="16" rx="1"/></svg>Pipeline</button>
       <button class="sb-item" id="nav-starred" onclick="go('starred')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>Starred<span class="sb-badge" id="sb-star-cc"></span></button>
       <button class="sb-item" id="nav-campaigns" onclick="go('campaigns')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>Campaigns</button>
+      <button class="sb-item" id="nav-artists" onclick="go('artists')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/><circle cx="11" cy="11" r="2"/></svg>Artists<span class="sb-badge" id="sb-artist-cc"></span></button>
       <div class="sb-divider"></div>
       <button class="sb-item" id="nav-import" onclick="go('import')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>Import Customers</button>
       <button class="sb-item" id="nav-import-activity" onclick="go('import-activity')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>Import Activities</button>
@@ -345,8 +346,8 @@ const SURL = 'https://ypfwecopdsielnouxwzv.supabase.co';
 const SKEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlwZndlY29wZHNpZWxub3V4d3p2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3NDMyNjgsImV4cCI6MjA5MTMxOTI2OH0.ll4Epk7es-knrgbG6j0e5xo59OEdMFwpxeWmMs9RfpU';
 const sb = supabase.createClient(SURL, SKEY);
 const PG = 250;
-const CRM_VERSION = '64'; // bump on each deploy; must match version.json
-const BUILD_DATE = '16 Jul 26'; // shown in the top-bar version label
+const CRM_VERSION = '65'; // bump on each deploy; must match version.json
+const BUILD_DATE = '17 Jul 26'; // shown in the top-bar version label
 // Columns derived from joins/arrays that can't be ordered server-side — rendered as non-clickable headers
 const NON_SORTABLE_COLS = new Set(['contact_name','contact_first','contact_last','contact_email','name_2','email_2','name_3','email_3','name_4','email_4']);
 // Display key -> real orderable customer column
@@ -457,7 +458,7 @@ async function boot(){
     });
   }
   ensureCampCols(); // new activity columns auto-show for every user, pinned to the front block
-  refreshCounts();refreshStarBadge();go('dashboard');
+  refreshCounts();refreshStarBadge();refreshArtistBadge();go('dashboard');
 }
 
 async function loadEtypes(){
@@ -547,6 +548,11 @@ function go(view,params={}){
   else if(view==='import'){setTitle('Import Centre');renderImport();}
   else if(view==='import-activity'){setTitle('Import Activities');renderImportActivity();}
   else if(view==='campaigns'){setTitle('Campaigns');renderCampaigns();}
+  else if(view==='artists'){
+    setTitle('Artists');
+    setActions(`<button class="btn btn-primary btn-sm" onclick="showAddEditArtist(null)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add Artist</button>`);
+    renderArtists();
+  }
   else if(view==='rules'){
     setTitle('Business Rules');
     setActions(`<button class="btn btn-primary btn-sm" onclick="showAddEditRule(null)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> New Rule</button>`);
@@ -4029,6 +4035,159 @@ async function deleteCampaign(id,name){
   // Remove from custCols if present
   if(S.custCols)S.custCols=S.custCols.filter(c=>c.key!=='camp:'+id);
   renderCampaigns();
+}
+
+// ═══ ARTISTS (prospective licensing) ═══
+// Manually curated — deliberately NOT fed by KashFlow sync or the Artist Scout routine.
+// Only artists Mark/team select get added here.
+const ARTIST_STAGES=['Shortlisted','Contacted','In Conversation','Sampling','Signed','Passed'];
+const ARTIST_STAGE_COLOURS={Shortlisted:'#1d4ed8',Contacted:'#7c3aed','In Conversation':'#b45309',Sampling:'#0f766e',Signed:'#15803d',Passed:'#94a3b8'};
+let _artists=[]; let _artistFilter='Active'; let _artistSearch='';
+
+async function refreshArtistBadge(){
+  const{count}=await sb.from('crm_artists').select('*',{count:'exact',head:true}).not('status','in','("Signed","Passed")');
+  const el=document.getElementById('sb-artist-cc');
+  if(el)el.textContent=(count!=null&&count>0)?count:'';
+}
+
+async function renderArtists(){
+  const{data,error}=await sb.from('crm_artists').select('*').order('created_at',{ascending:false});
+  if(error){setPage(`<div style="color:var(--red)">Failed to load artists: ${x(error.message)}</div>`);return;}
+  _artists=data||[];
+  drawArtists();
+}
+
+function artistLinks(a){
+  const links=[];
+  if(a.instagram_url)links.push(`<a href="${x(a.instagram_url)}" target="_blank" rel="noopener" style="color:var(--accent);font-weight:600;text-decoration:none">Instagram ↗</a>`);
+  if(a.website)links.push(`<a href="${x(a.website.startsWith('http')?a.website:'https://'+a.website)}" target="_blank" rel="noopener" style="color:var(--accent);font-weight:600;text-decoration:none">Website ↗</a>`);
+  if(a.email)links.push(`<a href="mailto:${x(a.email)}" style="color:var(--accent);font-weight:600;text-decoration:none">${x(a.email)}</a>`);
+  return links.join('<span style="color:var(--border)"> · </span>');
+}
+
+function artistExampleLinks(a){
+  if(!a.example_links)return '';
+  const links=a.example_links.split(/\n+/).map(l=>l.trim()).filter(Boolean);
+  if(!links.length)return '';
+  return `<div style="margin-top:6px;display:flex;gap:10px;flex-wrap:wrap">${links.map((l,i)=>`<a href="${x(l.startsWith('http')?l:'https://'+l)}" target="_blank" rel="noopener" style="font-size:11px;color:var(--teal);font-weight:600;text-decoration:none">Example ${i+1} ↗</a>`).join('')}</div>`;
+}
+
+function drawArtists(){
+  const q=_artistSearch.toLowerCase();
+  let list=_artists.filter(a=>{
+    if(_artistFilter==='Active'&&(a.status==='Signed'||a.status==='Passed'))return false;
+    if(_artistFilter!=='Active'&&_artistFilter!=='All'&&a.status!==_artistFilter)return false;
+    if(q&&!((a.name||'')+' '+(a.category||'')+' '+(a.style_notes||'')+' '+(a.location||'')).toLowerCase().includes(q))return false;
+    return true;
+  });
+  const chips=['Active','All',...ARTIST_STAGES];
+  const counts={Active:_artists.filter(a=>a.status!=='Signed'&&a.status!=='Passed').length,All:_artists.length};
+  ARTIST_STAGES.forEach(s=>counts[s]=_artists.filter(a=>a.status===s).length);
+  setPage(`
+    <div style="max-width:900px">
+      <div style="margin-bottom:16px">
+        <p style="font-size:13px;color:var(--text3);margin:0 0 12px">Prospective artists for licensing. Added by hand only — kept separate from customers and the KashFlow sync. Pick the good ones out of the Artist Scout emails and add them here.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          ${chips.map(c=>`<button class="btn btn-sm" onclick="_artistFilter='${c}';drawArtists()" style="${_artistFilter===c?'background:var(--accent-s);color:var(--accent);border-color:var(--accent);font-weight:600':''}">${c}${counts[c]?` <span style="opacity:.6">${counts[c]}</span>`:''}</button>`).join('')}
+          <input class="f-input" style="max-width:220px;margin-left:auto" placeholder="Search artists…" value="${x(_artistSearch)}" oninput="_artistSearch=this.value;drawArtists()"/>
+        </div>
+      </div>
+      ${!list.length?`
+        <div style="text-align:center;padding:60px 20px;color:var(--text3)">
+          <div style="font-size:48px;margin-bottom:12px">🎨</div>
+          <div style="font-size:15px;font-weight:600;margin-bottom:6px">${_artists.length?'No artists match this filter':'No artists yet'}</div>
+          <div style="font-size:13px">${_artists.length?'Try another filter or clear the search.':'Add your first prospective artist with the button top-right.'}</div>
+        </div>
+      `:list.map(a=>{
+        const col=ARTIST_STAGE_COLOURS[a.status]||'#64748b';
+        return `
+        <div class="detail-card" style="margin-bottom:12px">
+          <div style="display:flex;gap:14px;padding:14px 16px;align-items:flex-start">
+            <div style="font-size:22px;flex-shrink:0;margin-top:2px">🎨</div>
+            <div style="flex:1;min-width:0">
+              <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                <span style="font-size:14px;font-weight:700">${x(a.name)}</span>
+                ${a.category?`<span class="tag-chip" style="font-size:10px">${x(a.category)}</span>`:''}
+                ${a.location?`<span style="font-size:11px;color:var(--text3)">📍 ${x(a.location)}</span>`:''}
+              </div>
+              ${artistLinks(a)?`<div style="font-size:12px;margin-top:5px">${artistLinks(a)}</div>`:''}
+              ${a.style_notes?`<div style="font-size:12px;color:var(--text2);margin-top:6px">${x(a.style_notes)}</div>`:''}
+              ${a.why_suitable?`<div style="font-size:12px;color:var(--text3);margin-top:3px;font-style:italic">Why: ${x(a.why_suitable)}</div>`:''}
+              ${artistExampleLinks(a)}
+              ${a.notes?`<div style="font-size:12px;color:var(--text2);margin-top:8px;padding:8px 10px;background:var(--bg);border-radius:6px;white-space:pre-wrap">${x(a.notes)}</div>`:''}
+              ${a.agent?`<div style="font-size:11px;color:var(--text3);margin-top:6px">Agent/contact: ${x(a.agent)}</div>`:''}
+              <div style="font-size:11px;color:var(--text3);margin-top:6px">Added ${new Date(a.created_at).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'})}${a.added_by?' by '+x(a.added_by):''}</div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px;flex-shrink:0;align-items:flex-end">
+              <select class="f-input" style="font-size:12px;font-weight:600;padding:4px 8px;width:auto;color:${col};border-color:${col}55" data-artist-id="${a.id}" onchange="setArtistStatus(this.dataset.artistId,this.value)">
+                ${ARTIST_STAGES.map(s=>`<option value="${s}" ${a.status===s?'selected':''}>${s}</option>`).join('')}
+              </select>
+              <div style="display:flex;gap:6px">
+                <button class="btn btn-sm" data-artist-id="${a.id}" onclick="showAddEditArtist(this.dataset.artistId)">Edit</button>
+                <button class="btn btn-sm" style="color:var(--red)" data-artist-id="${a.id}" data-artist-name="${x(a.name).replace(/"/g,'&quot;')}" onclick="deleteArtist(this.dataset.artistId,this.dataset.artistName)">Delete</button>
+              </div>
+            </div>
+          </div>
+        </div>`;}).join('')}
+    </div>
+  `);
+}
+
+async function setArtistStatus(id,status){
+  const a=_artists.find(a=>a.id===id);if(!a)return;
+  const prev=a.status;a.status=status;drawArtists();
+  const{error}=await sb.from('crm_artists').update({status}).eq('id',id);
+  if(error){a.status=prev;drawArtists();alert(error.message);return;}
+  refreshArtistBadge();
+}
+
+function showAddEditArtist(id){
+  const a=id?_artists.find(a=>a.id===id):null;
+  openModal(a?'Edit Artist':'Add Artist',`
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div style="grid-column:1/-1"><label class="f-label">Artist Name *</label><input class="f-input" id="ar-name" value="${a?x(a.name):''}" placeholder="e.g. Jane Doodle" autofocus/></div>
+      <div><label class="f-label">Category</label><input class="f-input" id="ar-category" value="${a?x(a.category||''):''}" placeholder="e.g. Pets / General humour"/></div>
+      <div><label class="f-label">Location</label><input class="f-input" id="ar-location" value="${a?x(a.location||''):''}" placeholder="e.g. UK, Bristol"/></div>
+      <div><label class="f-label">Instagram URL</label><input class="f-input" id="ar-instagram" value="${a?x(a.instagram_url||''):''}" placeholder="https://instagram.com/…"/></div>
+      <div><label class="f-label">Website</label><input class="f-input" id="ar-website" value="${a?x(a.website||''):''}" placeholder="https://…"/></div>
+      <div><label class="f-label">Email</label><input class="f-input" id="ar-email" value="${a?x(a.email||''):''}" placeholder="hello@…"/></div>
+      <div><label class="f-label">Agent / Contact</label><input class="f-input" id="ar-agent" value="${a?x(a.agent||''):''}" placeholder="Agent or rep, if any"/></div>
+      <div style="grid-column:1/-1"><label class="f-label">Example Artwork Links (one per line)</label><textarea class="f-input" id="ar-examples" rows="3" placeholder="Paste links from the Artist Scout email…">${a?x(a.example_links||''):''}</textarea></div>
+      <div style="grid-column:1/-1"><label class="f-label">Style Notes</label><input class="f-input" id="ar-style" value="${a?x(a.style_notes||''):''}" placeholder="e.g. Deadpan single-panel humour, hand lettering"/></div>
+      <div style="grid-column:1/-1"><label class="f-label">Why Suitable</label><input class="f-input" id="ar-why" value="${a?x(a.why_suitable||''):''}" placeholder="Fit with Brainbox humour"/></div>
+      <div style="grid-column:1/-1"><label class="f-label">Notes</label><textarea class="f-input" id="ar-notes" rows="3" placeholder="Conversations, terms discussed, next steps…">${a?x(a.notes||''):''}</textarea></div>
+    </div>
+    <div id="ar-err" style="color:var(--red);font-size:12px;margin-top:8px"></div>
+  `,`
+    <button class="btn" onclick="closeModal()">Cancel</button>
+    <button class="btn btn-primary" onclick="saveArtist(${a?`'${a.id}'`:'null'})">${a?'Save Changes':'Add Artist'}</button>
+  `,true);
+}
+
+async function saveArtist(id){
+  const v=k=>document.getElementById('ar-'+k)?.value.trim()||null;
+  const rec={
+    name:v('name'),category:v('category'),location:v('location'),
+    instagram_url:v('instagram'),website:v('website'),email:v('email'),agent:v('agent'),
+    example_links:v('examples'),style_notes:v('style'),why_suitable:v('why'),notes:v('notes')
+  };
+  if(!rec.name){document.getElementById('ar-err').textContent='Artist name is required';return;}
+  if(id){
+    const{error}=await sb.from('crm_artists').update(rec).eq('id',id);
+    if(error){document.getElementById('ar-err').textContent=error.message;return;}
+  }else{
+    rec.added_by=(document.getElementById('cu-sel')?.value)||null;
+    const{error}=await sb.from('crm_artists').insert(rec);
+    if(error){document.getElementById('ar-err').textContent=error.message;return;}
+  }
+  closeModal();renderArtists();refreshArtistBadge();
+}
+
+async function deleteArtist(id,name){
+  if(!confirm(`Delete artist "${name}"? This can't be undone.`))return;
+  const{error}=await sb.from('crm_artists').delete().eq('id',id);
+  if(error){alert(error.message);return;}
+  renderArtists();refreshArtistBadge();
 }
 
 // ─────────────────────────────────────────────
