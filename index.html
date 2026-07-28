@@ -346,8 +346,8 @@ const SURL = 'https://ypfwecopdsielnouxwzv.supabase.co';
 const SKEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlwZndlY29wZHNpZWxub3V4d3p2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3NDMyNjgsImV4cCI6MjA5MTMxOTI2OH0.ll4Epk7es-knrgbG6j0e5xo59OEdMFwpxeWmMs9RfpU';
 const sb = supabase.createClient(SURL, SKEY);
 const PG = 250;
-const CRM_VERSION = '65'; // bump on each deploy; must match version.json
-const BUILD_DATE = '17 Jul 26'; // shown in the top-bar version label
+const CRM_VERSION = '66'; // bump on each deploy; must match version.json
+const BUILD_DATE = '28 Jul 26'; // shown in the top-bar version label
 // Columns derived from joins/arrays that can't be ordered server-side — rendered as non-clickable headers
 const NON_SORTABLE_COLS = new Set(['contact_name','contact_first','contact_last','contact_email','name_2','email_2','name_3','email_3','name_4','email_4']);
 // Display key -> real orderable customer column
@@ -355,6 +355,7 @@ const SORT_COL_MAP = {ml_subscribed:'ml_any_subscribed', ml_groups:'ml_group_nam
 // Pipeline stages, colours and team are hydrated from the DB at boot (loadPipelineConfig).
 // The literals below are the offline fallback if the config tables are unreachable.
 let PIPELINE_STAGES = ['Prospect','Contacted','Sampling','Negotiating','Won','Lost'];
+const DM_CHANNELS = ['Faire','Ankorstore','Instagram','Facebook','LinkedIn','WhatsApp','Etsy','Other'];
 // Off-Pipeline = parked/not on the board. Never rendered as a column or loaded by the board fetch.
 const OFF_PIPELINE = 'Off-Pipeline';
 let STAGE_COLOURS = {Prospect:'#1d4ed8',Contacted:'#7c3aed',Sampling:'#0f766e',Negotiating:'#b45309',Won:'#15803d',Lost:'#dc2626','Off-Pipeline':'#94a3b8'};
@@ -1703,7 +1704,9 @@ async function renderCustomerDetail(id){
         <div class="dcard-head"><span class="dcard-title">Activity Timeline (${events.length})</span><button class="btn btn-xs btn-primary" onclick="showLogEvent('${id}')">+ Log</button></div>
         <div class="timeline">
           ${events.length?events.map(e=>{
-            const et=S.etypes[e.event_type];const col=et?.colour||'#94a3b8';const label=et?.label||e.event_type||'Note';
+            const et=S.etypes[e.event_type];const col=et?.colour||'#94a3b8';
+            const chan=e.metadata&&e.metadata.channel?e.metadata.channel:'';
+            const label=(et?.label||e.event_type||'Note')+(chan?` · ${chan}`:'');
             return`<div class="tl-item">
               <div class="tl-bar" style="background:${col}"></div>
               <div class="tl-body">
@@ -3536,17 +3539,26 @@ function openModal(title,body,foot,large=false){
 function closeModal(){const o=document.getElementById('modal-overlay');o.hidden=true;o.style.zIndex='';}
 
 function showLogEvent(custId){
-  const opts=Object.values(S.etypes).length
-    ?Object.values(S.etypes).map(et=>`<option value="${x(et.event_type)}">${x(et.label)}</option>`).join('')
-    :'<option value="note">Note</option><option value="call">Call</option><option value="email">Email</option><option value="meeting">Meeting</option>';
+  const manual=Object.values(S.etypes).filter(et=>et.source==='manual')
+    .sort((a,b)=>(a.label||'').localeCompare(b.label||''));
+  const opts=manual.length
+    ?manual.map(et=>`<option value="${x(et.event_type)}" ${et.event_type==='note_logged'?'selected':''}>${x(et.label)}</option>`).join('')
+    :'<option value="note_logged">Note</option><option value="call_logged">Call</option><option value="email_logged">Email</option>';
   const now=new Date();const loc=new Date(now-now.getTimezoneOffset()*60000).toISOString().slice(0,16);
   openModal('Log Activity',`
-    <div><label class="f-label">Event Type</label><select class="f-input" id="le-type">${opts}</select></div>
+    <div><label class="f-label">Event Type</label><select class="f-input" id="le-type" onchange="toggleLeChannel()">${opts}</select></div>
+    <div id="le-channel-row" style="margin-top:12px" hidden><label class="f-label">Channel</label><select class="f-input" id="le-channel">${DM_CHANNELS.map(c=>`<option value="${c}">${c}</option>`).join('')}</select></div>
     <div style="margin-top:12px"><label class="f-label">Title / Subject</label><input class="f-input" id="le-title" type="text" placeholder="Brief summary…"/></div>
     <div style="margin-top:12px"><label class="f-label">Notes</label><textarea class="f-input" id="le-body" rows="4" placeholder="Details, outcomes, next steps…"></textarea></div>
     <div style="margin-top:12px"><label class="f-label">Date & Time</label><input class="f-input" id="le-date" type="datetime-local" value="${loc}"/></div>
     <div id="le-err" class="inline-err"></div>`,
     `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveEvent('${custId}')">Save</button>`);
+  toggleLeChannel();
+}
+
+function toggleLeChannel(){
+  const row=document.getElementById('le-channel-row');const sel=document.getElementById('le-type');
+  if(row&&sel)row.hidden=(sel.value!=='direct_message');
 }
 
 async function saveEvent(custId){
@@ -3556,9 +3568,12 @@ async function saveEvent(custId){
   if(!title&&!body){err.textContent='Please add a title or notes.';return;}
   err.textContent='';
   const occurred_at=new Date(document.getElementById('le-date').value||new Date()).toISOString();
+  const etype=document.getElementById('le-type').value;
+  const chanEl=document.getElementById('le-channel');
+  const metadata=(etype==='direct_message'&&chanEl&&chanEl.value)?{channel:chanEl.value}:null;
   const{error}=await sb.from('events').insert({
-    customer_id:custId,event_type:document.getElementById('le-type').value,
-    title:title||null,body:body||null,
+    customer_id:custId,event_type:etype,
+    title:title||null,body:body||null,metadata,
     occurred_at,source:'manual',created_by:S.user.id
   });
   if(error){err.textContent=error.message;return;}
