@@ -567,6 +567,18 @@ function setLoading(){document.getElementById('main-content').className='page';d
 function setPage(h,cls='page'){const el=document.getElementById('main-content');el.className=cls;el.innerHTML=h;}
 
 // ═══ DASHBOARD ═══
+window._ncData=[];
+function dlNotContactedCSV(){
+  const rows=window._ncData||[];
+  if(!rows.length){alert('Nothing to download');return;}
+  const esc=v=>{v=(v==null?'':String(v));return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;};
+  const csv=['Company,Last Order,12m Spend,Last Contacted',
+    ...rows.map(c=>[c.company_name,c.last_order_date||'',Math.round(c.last_12m_spend||0),c.last_contacted_at?c.last_contacted_at.split('T')[0]:'Never'].map(esc).join(','))].join('\n');
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+  a.download='not-contacted-90-days-'+new Date().toISOString().split('T')[0]+'.csv';
+  a.click();URL.revokeObjectURL(a.href);
+}
 async function renderDashboard(){
   const today=new Date().toISOString().split('T')[0];
   const ninety=new Date(Date.now()-90*864e5).toISOString();
@@ -579,7 +591,7 @@ async function renderDashboard(){
     sb.from('customers').select('*',{count:'exact',head:true}).gte('last_order_date',d365).lt('last_order_date',d270),
     sb.from('customers').select('*',{count:'exact',head:true}).gte('last_order_date',d270).lt('last_order_date',d180),
     sb.from('customers').select('id,company_name,owner,last_order_date,last_invoice_date,pipeline_value,contacts(first_name,last_name,is_primary)').eq('pipeline_stage','Ordered').order('company_name'),
-    sb.from('customers').select('id,company_name,last_order_date,last_contacted_at,last_12m_spend').gte('last_order_date',d180).not('hidden','is',true).or(`last_contacted_at.is.null,last_contacted_at.lt.${ninety}`).order('last_12m_spend',{ascending:false,nullsFirst:false}).limit(8),
+    sb.from('customers').select('id,company_name,last_order_date,last_contacted_at,last_12m_spend').gte('last_order_date',d180).not('hidden','is',true).or(`last_contacted_at.is.null,last_contacted_at.lt.${ninety}`).order('last_12m_spend',{ascending:false,nullsFirst:false}).limit(500),
     sb.from('customers').select('*',{count:'exact',head:true}).is('last_order_date',null),
     sb.from('customers').select('*',{count:'exact',head:true}).lt('last_order_date',d365),
     sb.from('customers').select('*',{count:'exact',head:true}).eq('buys_shrig',true),
@@ -665,10 +677,10 @@ async function renderDashboard(){
             <div class="act-text">📞 Call ${nm?`<strong>${x(nm)}</strong> at `:''}<strong>${x(c.company_name)}</strong> — ${c._wk} weeks since last order — <strong>${val}</strong>${c.owner?` <span style="color:var(--text3)">(${x(c.owner)})</span>`:''} · <a onclick="event.stopPropagation();showCallInfo('${c.id}')" style="color:var(--blue);cursor:pointer;font-weight:600;white-space:nowrap">call info ↗</a></div></div>`;}).join(''):'<div class="dash-empty">No reorder calls due — every Ordered customer has ordered within the last 5 weeks.</div>'}</div>
       </div>
       <div class="dash-card" style="grid-column:1/-1">
-        <div class="dash-head">Not Contacted in 90+ Days (Active customers) <span class="sb-badge">${r7.data?.length||0}</span></div>
-        <div class="dash-body">
+        <div class="dash-head" style="display:flex;align-items:center;gap:8px">Not Contacted in 90+ Days (Active customers) <span class="sb-badge">${(window._ncData=r7.data||[]).length}</span><button onclick="dlNotContactedCSV()" style="margin-left:auto;font-size:11px;font-weight:600;padding:4px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text2);cursor:pointer">⬇ CSV</button></div>
+        <div class="dash-body" style="max-height:340px;overflow-y:auto">
           ${r7.data?.length?`<table style="width:100%;border-collapse:collapse">
-            <thead><tr><th style="padding:8px 14px;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--text2);background:var(--surface2);border-bottom:1px solid var(--border);text-align:left">Company</th><th style="padding:8px 14px;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--text2);background:var(--surface2);border-bottom:1px solid var(--border);text-align:left">Last Order</th><th style="padding:8px 14px;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--text2);background:var(--surface2);border-bottom:1px solid var(--border);text-align:right">12m Spend</th><th style="padding:8px 14px;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--text2);background:var(--surface2);border-bottom:1px solid var(--border);text-align:left">Last Contacted</th></tr></thead>
+            <thead><tr><th style="position:sticky;top:0;z-index:1;padding:8px 14px;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--text2);background:var(--surface2);border-bottom:1px solid var(--border);text-align:left">Company</th><th style="position:sticky;top:0;z-index:1;padding:8px 14px;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--text2);background:var(--surface2);border-bottom:1px solid var(--border);text-align:left">Last Order</th><th style="position:sticky;top:0;z-index:1;padding:8px 14px;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--text2);background:var(--surface2);border-bottom:1px solid var(--border);text-align:right">12m Spend</th><th style="position:sticky;top:0;z-index:1;padding:8px 14px;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--text2);background:var(--surface2);border-bottom:1px solid var(--border);text-align:left">Last Contacted</th></tr></thead>
             <tbody>${r7.data.map(c=>`<tr style="cursor:pointer;transition:background .1s" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''" onclick="go('customer-detail',{id:'${c.id}'})">
               <td style="padding:9px 14px;border-bottom:1px solid var(--border);font-size:13px">${x(c.company_name)}</td>
               <td style="padding:9px 14px;border-bottom:1px solid var(--border);font-size:13px">${c.last_order_date?fd(c.last_order_date):'—'}</td>
