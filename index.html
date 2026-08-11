@@ -126,6 +126,8 @@ textarea.f-input{resize:vertical;min-height:72px}
 .dash-action-progress.error .dash-action-status{color:var(--red);white-space:normal}
 .dash-action-status{font-size:12px;color:var(--text2);font-weight:500;white-space:nowrap}
 .stat-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px 18px}
+.stat-card.stat-click{cursor:pointer;transition:box-shadow .15s,border-color .15s}
+.stat-card.stat-click:hover{box-shadow:var(--sh);border-color:var(--border2)}
 .stat-n{font-size:26px;font-weight:700;letter-spacing:-.8px;line-height:1;font-variant-numeric:tabular-nums}
 .stat-l{font-size:12px;color:var(--text2);margin-top:5px;font-weight:500}
 .stat-sub{font-size:10px;color:var(--text3);margin-top:3px;line-height:1.3}
@@ -346,7 +348,7 @@ const SURL = 'https://ypfwecopdsielnouxwzv.supabase.co';
 const SKEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlwZndlY29wZHNpZWxub3V4d3p2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3NDMyNjgsImV4cCI6MjA5MTMxOTI2OH0.ll4Epk7es-knrgbG6j0e5xo59OEdMFwpxeWmMs9RfpU';
 const sb = supabase.createClient(SURL, SKEY);
 const PG = 250;
-const CRM_VERSION = '67'; // bump on each deploy; must match version.json
+const CRM_VERSION = '68'; // bump on each deploy; must match version.json
 const BUILD_DATE = '11 Aug 26'; // shown in the top-bar version label
 // Columns derived from joins/arrays that can't be ordered server-side — rendered as non-clickable headers
 const NON_SORTABLE_COLS = new Set(['contact_name','contact_first','contact_last','contact_email','name_2','email_2','name_3','email_3','name_4','email_4']);
@@ -579,6 +581,73 @@ function dlNotContactedCSV(){
   a.download='not-contacted-90-days-'+new Date().toISOString().split('T')[0]+'.csv';
   a.click();URL.revokeObjectURL(a.href);
 }
+
+// ── Clickable dashboard stat cards ──
+// Clicking any stat card loads that segment's full customer list into the
+// bottom dashboard panel (replacing the Not Contacted table until ✕ is clicked).
+window._segData=[];window._segLabel='';
+async function showSegment(group,seg,label){
+  const card=document.getElementById('dash-bottom-card');if(!card)return;
+  if(!window._ncHTML)window._ncHTML=card.innerHTML;
+  card.innerHTML=`<div class="dash-head">${x(label)}</div><div class="dash-body"><div class="dash-empty"><span class="spinner"></span> Loading customers…</div></div>`;
+  card.scrollIntoView({behavior:'smooth',block:'nearest'});
+  const d180=new Date(Date.now()-180*864e5).toISOString().split('T')[0];
+  const d270=new Date(Date.now()-270*864e5).toISOString().split('T')[0];
+  const d365=new Date(Date.now()-365*864e5).toISOString().split('T')[0];
+  const base=()=>{
+    let q=sb.from('customers').select('id,company_name,owner,last_order_date,last_contacted_at,last_12m_spend');
+    if(group==='shrig')q=q.eq('buys_shrig',true);
+    else if(group==='only')q=q.eq('shrig_exclusive',true);
+    if(seg==='active')q=q.gte('last_order_date',d180);
+    else if(seg==='leads')q=q.is('last_order_date',null);
+    else if(seg==='atrisk')q=q.gte('last_order_date',d270).lt('last_order_date',d180);
+    else if(seg==='lapsed')q=q.gte('last_order_date',d365).lt('last_order_date',d270);
+    else if(seg==='dormant')q=q.lt('last_order_date',d365);
+    return q;
+  };
+  // Page through all rows (Supabase caps a single request at 1000)
+  let rows=[],page=0;const PS=1000;
+  while(true){
+    const{data,error}=await base().order('last_12m_spend',{ascending:false,nullsFirst:false}).order('id',{ascending:true}).range(page*PS,(page+1)*PS-1);
+    if(error){card.innerHTML=`<div class="dash-head">${x(label)}</div><div class="dash-body"><div class="dash-empty">Error loading customers: ${x(error.message)}</div></div>`;return;}
+    rows=rows.concat(data||[]);
+    if(!data||data.length<PS||page>=20)break;
+    page++;
+  }
+  window._segData=rows;window._segLabel=label;
+  const TH='padding:8px 14px;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--text2);background:var(--surface2);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:1';
+  const TD='padding:9px 14px;border-bottom:1px solid var(--border);font-size:13px';
+  card.innerHTML=`
+    <div class="dash-head" style="display:flex;align-items:center;gap:8px">${x(label)} <span class="sb-badge">${n(rows.length)}</span>
+      <button onclick="dlSegmentCSV()" style="margin-left:auto;font-size:11px;font-weight:600;padding:4px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text2);cursor:pointer">⬇ CSV</button>
+      <button onclick="restoreNCPanel()" title="Back to Not Contacted in 90+ Days" style="font-size:11px;font-weight:600;padding:4px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text2);cursor:pointer">✕ Close</button>
+    </div>
+    <div class="dash-body" style="max-height:420px;overflow-y:auto">
+      ${rows.length?`<table style="width:100%;border-collapse:collapse">
+        <thead><tr><th style="${TH};text-align:left">Company</th><th style="${TH};text-align:left">Owner</th><th style="${TH};text-align:left">Last Order</th><th style="${TH};text-align:right">12m Spend</th><th style="${TH};text-align:left">Last Contacted</th></tr></thead>
+        <tbody>${rows.map(c=>`<tr style="cursor:pointer;transition:background .1s" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''" onclick="go('customer-detail',{id:'${c.id}'})">
+          <td style="${TD}">${x(c.company_name)}</td>
+          <td style="${TD};color:var(--text2)">${x(c.owner||'—')}</td>
+          <td style="${TD}">${c.last_order_date?fd(c.last_order_date):'—'}</td>
+          <td style="${TD};text-align:right">£${Number(c.last_12m_spend||0).toLocaleString('en-GB',{minimumFractionDigits:0,maximumFractionDigits:0})}</td>
+          <td style="${TD};color:${c.last_contacted_at?'var(--text)':'var(--red)'}">${c.last_contacted_at?fd(c.last_contacted_at):'Never'}</td>
+        </tr>`).join('')}</tbody>
+      </table>`:'<div class="dash-empty">No customers in this segment</div>'}
+    </div>`;
+}
+function restoreNCPanel(){const card=document.getElementById('dash-bottom-card');if(card&&window._ncHTML)card.innerHTML=window._ncHTML;}
+function dlSegmentCSV(){
+  const rows=window._segData||[];
+  if(!rows.length){alert('Nothing to download');return;}
+  const esc=v=>{v=(v==null?'':String(v));return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;};
+  const csv=['Company,Owner,Last Order,12m Spend,Last Contacted',
+    ...rows.map(c=>[c.company_name,c.owner||'',c.last_order_date||'',Math.round(c.last_12m_spend||0),c.last_contacted_at?c.last_contacted_at.split('T')[0]:'Never'].map(esc).join(','))].join('\n');
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+  a.download=(window._segLabel||'segment').toLowerCase().replace(/[^a-z0-9]+/g,'-')+'-'+new Date().toISOString().split('T')[0]+'.csv';
+  a.click();URL.revokeObjectURL(a.href);
+}
+
 async function renderDashboard(){
   const today=new Date().toISOString().split('T')[0];
   const ninety=new Date(Date.now()-90*864e5).toISOString();
@@ -641,30 +710,30 @@ async function renderDashboard(){
     </div>
     <div class="stats-label" style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text2);margin:2px 0 8px">All Customers</div>
     <div class="stats-grid">
-      <div class="stat-card"><div class="stat-n">${n(r1.count)}</div><div class="stat-l">Total Customers</div><div class="stat-sub">All records in the CRM</div></div>
-      <div class="stat-card"><div class="stat-n" style="color:var(--green)">${n(r2.count)}</div><div class="stat-l">Active</div><div class="stat-sub">Ordered in the last 180 days</div></div>
-      <div class="stat-card"><div class="stat-n" style="color:var(--accent)">${n(rLead.count)}</div><div class="stat-l">Leads</div><div class="stat-sub">Never ordered</div></div>
-      <div class="stat-card"><div class="stat-n" style="color:var(--orange,#b45309)">${n(r4.count)}</div><div class="stat-l">At Risk</div><div class="stat-sub">Last order 180–270 days ago</div></div>
-      <div class="stat-card"><div class="stat-n" style="color:var(--red)">${n(r3.count)}</div><div class="stat-l">Lapsed</div><div class="stat-sub">Last order 270–365 days ago</div></div>
-      <div class="stat-card"><div class="stat-n" style="color:var(--text2)">${n(rDormant.count)}</div><div class="stat-l">Dormant</div><div class="stat-sub">Last order 12+ months ago</div></div>
+      <div class="stat-card stat-click" onclick="showSegment('all','total','All Customers — Total')" title="Click to view these customers"><div class="stat-n">${n(r1.count)}</div><div class="stat-l">Total Customers</div><div class="stat-sub">All records in the CRM</div></div>
+      <div class="stat-card stat-click" onclick="showSegment('all','active','All Customers — Active')" title="Click to view these customers"><div class="stat-n" style="color:var(--green)">${n(r2.count)}</div><div class="stat-l">Active</div><div class="stat-sub">Ordered in the last 180 days</div></div>
+      <div class="stat-card stat-click" onclick="showSegment('all','leads','All Customers — Leads')" title="Click to view these customers"><div class="stat-n" style="color:var(--accent)">${n(rLead.count)}</div><div class="stat-l">Leads</div><div class="stat-sub">Never ordered</div></div>
+      <div class="stat-card stat-click" onclick="showSegment('all','atrisk','All Customers — At Risk')" title="Click to view these customers"><div class="stat-n" style="color:var(--orange,#b45309)">${n(r4.count)}</div><div class="stat-l">At Risk</div><div class="stat-sub">Last order 180–270 days ago</div></div>
+      <div class="stat-card stat-click" onclick="showSegment('all','lapsed','All Customers — Lapsed')" title="Click to view these customers"><div class="stat-n" style="color:var(--red)">${n(r3.count)}</div><div class="stat-l">Lapsed</div><div class="stat-sub">Last order 270–365 days ago</div></div>
+      <div class="stat-card stat-click" onclick="showSegment('all','dormant','All Customers — Dormant')" title="Click to view these customers"><div class="stat-n" style="color:var(--text2)">${n(rDormant.count)}</div><div class="stat-l">Dormant</div><div class="stat-sub">Last order 12+ months ago</div></div>
     </div>
     <div class="stats-label" style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text2);margin:18px 0 8px">David Shrigley Customers</div>
     <div class="stats-grid">
-      <div class="stat-card"><div class="stat-n">${n(sTot.count)}</div><div class="stat-l">Total Shrigley</div><div class="stat-sub">Have ordered David Shrigley</div></div>
-      <div class="stat-card"><div class="stat-n" style="color:var(--green)">${n(sAct.count)}</div><div class="stat-l">Active</div><div class="stat-sub">Ordered in the last 180 days</div></div>
-      <div class="stat-card"><div class="stat-n" style="color:var(--accent)">${n(sLead.count)}</div><div class="stat-l">Leads</div><div class="stat-sub">Never ordered</div></div>
-      <div class="stat-card"><div class="stat-n" style="color:var(--orange,#b45309)">${n(sRisk.count)}</div><div class="stat-l">At Risk</div><div class="stat-sub">Last order 180–270 days ago</div></div>
-      <div class="stat-card"><div class="stat-n" style="color:var(--red)">${n(sLap.count)}</div><div class="stat-l">Lapsed</div><div class="stat-sub">Last order 270–365 days ago</div></div>
-      <div class="stat-card"><div class="stat-n" style="color:var(--text2)">${n(sDorm.count)}</div><div class="stat-l">Dormant</div><div class="stat-sub">Last order 12+ months ago</div></div>
+      <div class="stat-card stat-click" onclick="showSegment('shrig','total','Shrigley — Total')" title="Click to view these customers"><div class="stat-n">${n(sTot.count)}</div><div class="stat-l">Total Shrigley</div><div class="stat-sub">Have ordered David Shrigley</div></div>
+      <div class="stat-card stat-click" onclick="showSegment('shrig','active','Shrigley — Active')" title="Click to view these customers"><div class="stat-n" style="color:var(--green)">${n(sAct.count)}</div><div class="stat-l">Active</div><div class="stat-sub">Ordered in the last 180 days</div></div>
+      <div class="stat-card stat-click" onclick="showSegment('shrig','leads','Shrigley — Leads')" title="Click to view these customers"><div class="stat-n" style="color:var(--accent)">${n(sLead.count)}</div><div class="stat-l">Leads</div><div class="stat-sub">Never ordered</div></div>
+      <div class="stat-card stat-click" onclick="showSegment('shrig','atrisk','Shrigley — At Risk')" title="Click to view these customers"><div class="stat-n" style="color:var(--orange,#b45309)">${n(sRisk.count)}</div><div class="stat-l">At Risk</div><div class="stat-sub">Last order 180–270 days ago</div></div>
+      <div class="stat-card stat-click" onclick="showSegment('shrig','lapsed','Shrigley — Lapsed')" title="Click to view these customers"><div class="stat-n" style="color:var(--red)">${n(sLap.count)}</div><div class="stat-l">Lapsed</div><div class="stat-sub">Last order 270–365 days ago</div></div>
+      <div class="stat-card stat-click" onclick="showSegment('shrig','dormant','Shrigley — Dormant')" title="Click to view these customers"><div class="stat-n" style="color:var(--text2)">${n(sDorm.count)}</div><div class="stat-l">Dormant</div><div class="stat-sub">Last order 12+ months ago</div></div>
     </div>
     <div class="stats-label" style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--purple,#7c3aed);margin:18px 0 8px">David Shrigley Only</div>
     <div class="stats-grid">
-      <div class="stat-card" style="border-color:var(--purple,#7c3aed)"><div class="stat-n" style="color:var(--purple,#7c3aed)">${n(sOnly.count)}</div><div class="stat-l">Total Shrigley Only</div><div class="stat-sub">Order David Shrigley only</div></div>
-      <div class="stat-card"><div class="stat-n" style="color:var(--green)">${n(soAct.count)}</div><div class="stat-l">Active</div><div class="stat-sub">Ordered in the last 180 days</div></div>
-      <div class="stat-card"><div class="stat-n" style="color:var(--accent)">${n(soLead.count)}</div><div class="stat-l">Leads</div><div class="stat-sub">Never ordered</div></div>
-      <div class="stat-card"><div class="stat-n" style="color:var(--orange,#b45309)">${n(soRisk.count)}</div><div class="stat-l">At Risk</div><div class="stat-sub">Last order 180–270 days ago</div></div>
-      <div class="stat-card"><div class="stat-n" style="color:var(--red)">${n(soLap.count)}</div><div class="stat-l">Lapsed</div><div class="stat-sub">Last order 270–365 days ago</div></div>
-      <div class="stat-card"><div class="stat-n" style="color:var(--text2)">${n(soDorm.count)}</div><div class="stat-l">Dormant</div><div class="stat-sub">Last order 12+ months ago</div></div>
+      <div class="stat-card stat-click" onclick="showSegment('only','total','Shrigley Only — Total')" title="Click to view these customers" style="border-color:var(--purple,#7c3aed)"><div class="stat-n" style="color:var(--purple,#7c3aed)">${n(sOnly.count)}</div><div class="stat-l">Total Shrigley Only</div><div class="stat-sub">Order David Shrigley only</div></div>
+      <div class="stat-card stat-click" onclick="showSegment('only','active','Shrigley Only — Active')" title="Click to view these customers"><div class="stat-n" style="color:var(--green)">${n(soAct.count)}</div><div class="stat-l">Active</div><div class="stat-sub">Ordered in the last 180 days</div></div>
+      <div class="stat-card stat-click" onclick="showSegment('only','leads','Shrigley Only — Leads')" title="Click to view these customers"><div class="stat-n" style="color:var(--accent)">${n(soLead.count)}</div><div class="stat-l">Leads</div><div class="stat-sub">Never ordered</div></div>
+      <div class="stat-card stat-click" onclick="showSegment('only','atrisk','Shrigley Only — At Risk')" title="Click to view these customers"><div class="stat-n" style="color:var(--orange,#b45309)">${n(soRisk.count)}</div><div class="stat-l">At Risk</div><div class="stat-sub">Last order 180–270 days ago</div></div>
+      <div class="stat-card stat-click" onclick="showSegment('only','lapsed','Shrigley Only — Lapsed')" title="Click to view these customers"><div class="stat-n" style="color:var(--red)">${n(soLap.count)}</div><div class="stat-l">Lapsed</div><div class="stat-sub">Last order 270–365 days ago</div></div>
+      <div class="stat-card stat-click" onclick="showSegment('only','dormant','Shrigley Only — Dormant')" title="Click to view these customers"><div class="stat-n" style="color:var(--text2)">${n(soDorm.count)}</div><div class="stat-l">Dormant</div><div class="stat-sub">Last order 12+ months ago</div></div>
     </div>
     <div class="dash-grid">
       <div class="dash-card">
@@ -676,7 +745,7 @@ async function renderDashboard(){
             <div class="act-dot" style="background:var(--accent)"></div>
             <div class="act-text">📞 Call ${nm?`<strong>${x(nm)}</strong> at `:''}<strong>${x(c.company_name)}</strong> — ${c._wk} weeks since last order — <strong>${val}</strong>${c.owner?` <span style="color:var(--text3)">(${x(c.owner)})</span>`:''} · <a onclick="event.stopPropagation();showCallInfo('${c.id}')" style="color:var(--blue);cursor:pointer;font-weight:600;white-space:nowrap">call info ↗</a></div></div>`;}).join(''):'<div class="dash-empty">No reorder calls due — every Ordered customer has ordered within the last 5 weeks.</div>'}</div>
       </div>
-      <div class="dash-card" style="grid-column:1/-1">
+      <div class="dash-card" style="grid-column:1/-1" id="dash-bottom-card">
         <div class="dash-head" style="display:flex;align-items:center;gap:8px">Not Contacted in 90+ Days (Active customers) <span class="sb-badge">${(window._ncData=r7.data||[]).length}</span><button onclick="dlNotContactedCSV()" style="margin-left:auto;font-size:11px;font-weight:600;padding:4px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text2);cursor:pointer">⬇ CSV</button></div>
         <div class="dash-body" style="max-height:340px;overflow-y:auto">
           ${r7.data?.length?`<table style="width:100%;border-collapse:collapse">
@@ -692,6 +761,8 @@ async function renderDashboard(){
       </div>
     </div>
   `);
+  // Remember the default (Not Contacted) bottom-panel content so ✕ can restore it
+  {const bc=document.getElementById('dash-bottom-card');if(bc)window._ncHTML=bc.innerHTML;}
   // Populate "Last run" timestamps on the Dashboard action cards
   loadLastSyncTimestamps();
 }
