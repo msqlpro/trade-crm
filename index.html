@@ -579,7 +579,7 @@ async function renderDashboard(){
     sb.from('customers').select('*',{count:'exact',head:true}).gte('last_order_date',d365).lt('last_order_date',d270),
     sb.from('customers').select('*',{count:'exact',head:true}).gte('last_order_date',d270).lt('last_order_date',d180),
     sb.from('customers').select('id,company_name,owner,last_order_date,last_invoice_date,pipeline_value,contacts(first_name,last_name,is_primary)').eq('pipeline_stage','Ordered').order('company_name'),
-    sb.from('customers').select('id,company_name,last_order_date,last_contacted_at,status').eq('status','active').or(`last_contacted_at.is.null,last_contacted_at.lt.${ninety}`).order('last_contacted_at',{nullsFirst:true}).limit(8),
+    sb.from('customers').select('id,company_name,last_order_date,last_contacted_at,last_12m_spend').gte('last_order_date',d180).or(`last_contacted_at.is.null,last_contacted_at.lt.${ninety}`).order('last_12m_spend',{ascending:false,nullsFirst:false}).limit(8),
     sb.from('customers').select('*',{count:'exact',head:true}).is('last_order_date',null),
     sb.from('customers').select('*',{count:'exact',head:true}).lt('last_order_date',d365),
     sb.from('customers').select('*',{count:'exact',head:true}).eq('buys_shrig',true),
@@ -668,9 +668,11 @@ async function renderDashboard(){
         <div class="dash-head">Not Contacted in 90+ Days (Active customers) <span class="sb-badge">${r7.data?.length||0}</span></div>
         <div class="dash-body">
           ${r7.data?.length?`<table style="width:100%;border-collapse:collapse">
-            <thead><tr><th style="padding:8px 14px;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--text2);background:var(--surface2);border-bottom:1px solid var(--border);text-align:left">Company</th><th style="padding:8px 14px;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--text2);background:var(--surface2);border-bottom:1px solid var(--border);text-align:left">Last Contacted</th></tr></thead>
+            <thead><tr><th style="padding:8px 14px;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--text2);background:var(--surface2);border-bottom:1px solid var(--border);text-align:left">Company</th><th style="padding:8px 14px;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--text2);background:var(--surface2);border-bottom:1px solid var(--border);text-align:left">Last Order</th><th style="padding:8px 14px;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--text2);background:var(--surface2);border-bottom:1px solid var(--border);text-align:right">12m Spend</th><th style="padding:8px 14px;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--text2);background:var(--surface2);border-bottom:1px solid var(--border);text-align:left">Last Contacted</th></tr></thead>
             <tbody>${r7.data.map(c=>`<tr style="cursor:pointer;transition:background .1s" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''" onclick="go('customer-detail',{id:'${c.id}'})">
               <td style="padding:9px 14px;border-bottom:1px solid var(--border);font-size:13px">${x(c.company_name)}</td>
+              <td style="padding:9px 14px;border-bottom:1px solid var(--border);font-size:13px">${c.last_order_date?fd(c.last_order_date):'—'}</td>
+              <td style="padding:9px 14px;border-bottom:1px solid var(--border);font-size:13px;text-align:right">£${Number(c.last_12m_spend||0).toLocaleString('en-GB',{minimumFractionDigits:0,maximumFractionDigits:0})}</td>
               <td style="padding:9px 14px;border-bottom:1px solid var(--border);font-size:13px;color:var(--red)">${c.last_contacted_at?fd(c.last_contacted_at):'Never'}</td>
             </tr>`).join('')}</tbody>
           </table>`:'<div class="dash-empty">All active customers contacted recently ✓</div>'}
