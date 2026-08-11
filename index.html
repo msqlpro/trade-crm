@@ -579,7 +579,7 @@ async function renderDashboard(){
     sb.from('customers').select('*',{count:'exact',head:true}).gte('last_order_date',d365).lt('last_order_date',d270),
     sb.from('customers').select('*',{count:'exact',head:true}).gte('last_order_date',d270).lt('last_order_date',d180),
     sb.from('customers').select('id,company_name,owner,last_order_date,last_invoice_date,pipeline_value,contacts(first_name,last_name,is_primary)').eq('pipeline_stage','Ordered').order('company_name'),
-    sb.from('customers').select('id,company_name,last_order_date,last_contacted_at,last_12m_spend').gte('last_order_date',d180).or(`last_contacted_at.is.null,last_contacted_at.lt.${ninety}`).order('last_12m_spend',{ascending:false,nullsFirst:false}).limit(8),
+    sb.from('customers').select('id,company_name,last_order_date,last_contacted_at,last_12m_spend').gte('last_order_date',d180).not('hidden','is',true).or(`last_contacted_at.is.null,last_contacted_at.lt.${ninety}`).order('last_12m_spend',{ascending:false,nullsFirst:false}).limit(8),
     sb.from('customers').select('*',{count:'exact',head:true}).is('last_order_date',null),
     sb.from('customers').select('*',{count:'exact',head:true}).lt('last_order_date',d365),
     sb.from('customers').select('*',{count:'exact',head:true}).eq('buys_shrig',true),
