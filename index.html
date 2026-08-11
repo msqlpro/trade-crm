@@ -348,7 +348,7 @@ const SURL = 'https://ypfwecopdsielnouxwzv.supabase.co';
 const SKEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlwZndlY29wZHNpZWxub3V4d3p2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3NDMyNjgsImV4cCI6MjA5MTMxOTI2OH0.ll4Epk7es-knrgbG6j0e5xo59OEdMFwpxeWmMs9RfpU';
 const sb = supabase.createClient(SURL, SKEY);
 const PG = 250;
-const CRM_VERSION = '68'; // bump on each deploy; must match version.json
+const CRM_VERSION = '69'; // bump on each deploy; must match version.json
 const BUILD_DATE = '11 Aug 26'; // shown in the top-bar version label
 // Columns derived from joins/arrays that can't be ordered server-side — rendered as non-clickable headers
 const NON_SORTABLE_COLS = new Set(['contact_name','contact_first','contact_last','contact_email','name_2','email_2','name_3','email_3','name_4','email_4']);
@@ -501,7 +501,7 @@ async function saveColPrefs(){
   await sb.from('user_profiles').upsert({id:S.user.id,column_prefs:prefs});
 }
 async function refreshCounts(){
-  const{count}=await sb.from('customers').select('*',{count:'exact',head:true});
+  const{count}=await sb.from('customers').select('*',{count:'exact',head:true}).not('hidden','is',true);
   const cc=document.getElementById('sb-cc');if(cc&&count!=null)cc.textContent=count.toLocaleString();
 }
 
@@ -595,7 +595,7 @@ async function showSegment(group,seg,label){
   const d270=new Date(Date.now()-270*864e5).toISOString().split('T')[0];
   const d365=new Date(Date.now()-365*864e5).toISOString().split('T')[0];
   const base=()=>{
-    let q=sb.from('customers').select('id,company_name,owner,last_order_date,last_contacted_at,last_12m_spend');
+    let q=sb.from('customers').select('id,company_name,owner,last_order_date,last_contacted_at,last_12m_spend').not('hidden','is',true);
     if(group==='shrig')q=q.eq('buys_shrig',true);
     else if(group==='only')q=q.eq('shrig_exclusive',true);
     if(seg==='active')q=q.gte('last_order_date',d180);
@@ -655,26 +655,26 @@ async function renderDashboard(){
   const d270=new Date(Date.now()-270*864e5).toISOString().split('T')[0];
   const d365=new Date(Date.now()-365*864e5).toISOString().split('T')[0];
   const[r1,r2,r3,r4,r6,r7,rLead,rDormant,sTot,sAct,sLead,sRisk,sLap,sDorm,sOnly,soAct,soLead,soRisk,soLap,soDorm]=await Promise.all([
-    sb.from('customers').select('*',{count:'exact',head:true}),
-    sb.from('customers').select('*',{count:'exact',head:true}).gte('last_order_date',d180),
-    sb.from('customers').select('*',{count:'exact',head:true}).gte('last_order_date',d365).lt('last_order_date',d270),
-    sb.from('customers').select('*',{count:'exact',head:true}).gte('last_order_date',d270).lt('last_order_date',d180),
-    sb.from('customers').select('id,company_name,owner,last_order_date,last_invoice_date,pipeline_value,contacts(first_name,last_name,is_primary)').eq('pipeline_stage','Ordered').order('company_name'),
+    sb.from('customers').select('*',{count:'exact',head:true}).not('hidden','is',true),
+    sb.from('customers').select('*',{count:'exact',head:true}).not('hidden','is',true).gte('last_order_date',d180),
+    sb.from('customers').select('*',{count:'exact',head:true}).not('hidden','is',true).gte('last_order_date',d365).lt('last_order_date',d270),
+    sb.from('customers').select('*',{count:'exact',head:true}).not('hidden','is',true).gte('last_order_date',d270).lt('last_order_date',d180),
+    sb.from('customers').select('id,company_name,owner,last_order_date,last_invoice_date,pipeline_value,contacts(first_name,last_name,is_primary)').eq('pipeline_stage','Ordered').not('hidden','is',true).order('company_name'),
     sb.from('customers').select('id,company_name,last_order_date,last_contacted_at,last_12m_spend').gte('last_order_date',d180).not('hidden','is',true).or(`last_contacted_at.is.null,last_contacted_at.lt.${ninety}`).order('last_12m_spend',{ascending:false,nullsFirst:false}).limit(500),
-    sb.from('customers').select('*',{count:'exact',head:true}).is('last_order_date',null),
-    sb.from('customers').select('*',{count:'exact',head:true}).lt('last_order_date',d365),
-    sb.from('customers').select('*',{count:'exact',head:true}).eq('buys_shrig',true),
-    sb.from('customers').select('*',{count:'exact',head:true}).eq('buys_shrig',true).gte('last_order_date',d180),
-    sb.from('customers').select('*',{count:'exact',head:true}).eq('buys_shrig',true).is('last_order_date',null),
-    sb.from('customers').select('*',{count:'exact',head:true}).eq('buys_shrig',true).gte('last_order_date',d270).lt('last_order_date',d180),
-    sb.from('customers').select('*',{count:'exact',head:true}).eq('buys_shrig',true).gte('last_order_date',d365).lt('last_order_date',d270),
-    sb.from('customers').select('*',{count:'exact',head:true}).eq('buys_shrig',true).lt('last_order_date',d365),
-    sb.from('customers').select('*',{count:'exact',head:true}).eq('shrig_exclusive',true),
-    sb.from('customers').select('*',{count:'exact',head:true}).eq('shrig_exclusive',true).gte('last_order_date',d180),
-    sb.from('customers').select('*',{count:'exact',head:true}).eq('shrig_exclusive',true).is('last_order_date',null),
-    sb.from('customers').select('*',{count:'exact',head:true}).eq('shrig_exclusive',true).gte('last_order_date',d270).lt('last_order_date',d180),
-    sb.from('customers').select('*',{count:'exact',head:true}).eq('shrig_exclusive',true).gte('last_order_date',d365).lt('last_order_date',d270),
-    sb.from('customers').select('*',{count:'exact',head:true}).eq('shrig_exclusive',true).lt('last_order_date',d365),
+    sb.from('customers').select('*',{count:'exact',head:true}).not('hidden','is',true).is('last_order_date',null),
+    sb.from('customers').select('*',{count:'exact',head:true}).not('hidden','is',true).lt('last_order_date',d365),
+    sb.from('customers').select('*',{count:'exact',head:true}).not('hidden','is',true).eq('buys_shrig',true),
+    sb.from('customers').select('*',{count:'exact',head:true}).not('hidden','is',true).eq('buys_shrig',true).gte('last_order_date',d180),
+    sb.from('customers').select('*',{count:'exact',head:true}).not('hidden','is',true).eq('buys_shrig',true).is('last_order_date',null),
+    sb.from('customers').select('*',{count:'exact',head:true}).not('hidden','is',true).eq('buys_shrig',true).gte('last_order_date',d270).lt('last_order_date',d180),
+    sb.from('customers').select('*',{count:'exact',head:true}).not('hidden','is',true).eq('buys_shrig',true).gte('last_order_date',d365).lt('last_order_date',d270),
+    sb.from('customers').select('*',{count:'exact',head:true}).not('hidden','is',true).eq('buys_shrig',true).lt('last_order_date',d365),
+    sb.from('customers').select('*',{count:'exact',head:true}).not('hidden','is',true).eq('shrig_exclusive',true),
+    sb.from('customers').select('*',{count:'exact',head:true}).not('hidden','is',true).eq('shrig_exclusive',true).gte('last_order_date',d180),
+    sb.from('customers').select('*',{count:'exact',head:true}).not('hidden','is',true).eq('shrig_exclusive',true).is('last_order_date',null),
+    sb.from('customers').select('*',{count:'exact',head:true}).not('hidden','is',true).eq('shrig_exclusive',true).gte('last_order_date',d270).lt('last_order_date',d180),
+    sb.from('customers').select('*',{count:'exact',head:true}).not('hidden','is',true).eq('shrig_exclusive',true).gte('last_order_date',d365).lt('last_order_date',d270),
+    sb.from('customers').select('*',{count:'exact',head:true}).not('hidden','is',true).eq('shrig_exclusive',true).lt('last_order_date',d365),
   ]);
   const _WK=7*864e5, _now=Date.now();
   const callList=(r6.data||[]).map(c=>{const anchor=c.last_invoice_date||c.last_order_date; return {...c,_wk:anchor?Math.floor((_now-new Date(anchor).getTime())/_WK):-1};})
