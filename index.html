@@ -52,6 +52,9 @@ select.f-input{appearance:none;background-image:url("data:image/svg+xml,%3Csvg x
 textarea.f-input{resize:vertical;min-height:72px}
 .auth-btn{width:100%;margin-top:18px;padding:11px;background:var(--accent);color:#fff;border:none;border-radius:var(--r);font-family:var(--f);font-size:14px;font-weight:600;transition:background .15s}
 .auth-btn:hover{background:var(--accent-h)}.auth-btn:disabled{opacity:.5;cursor:not-allowed}
+.auth-forgot{margin-top:12px;text-align:center;font-size:12px}.auth-forgot a{color:var(--accent);text-decoration:none}.auth-forgot a:hover{text-decoration:underline}
+.auth-msg{font-size:12px;color:var(--text2);margin-top:10px;line-height:1.5;text-align:center}
+#auth-login-panel[hidden],#auth-reset-panel[hidden]{display:none!important}
 /* SHELL */
 #app{display:flex;height:100vh;overflow:hidden}
 #app[hidden],#auth-screen[hidden]{display:none!important}
@@ -284,12 +287,25 @@ tbody tr{transition:background .1s}tbody tr:hover{background:var(--surface2);cur
       <div class="auth-name">Brainbox CRM</div>
     </div>
     <div class="auth-sub">Trade customer management</div>
-    <div class="auth-err" id="auth-err"></div>
-    <label class="f-label">Email</label>
-    <input class="f-input" type="email" id="auth-email" placeholder="you@brainboxcandy.com" autocomplete="email"/>
-    <label class="f-label">Password</label>
-    <input class="f-input" type="password" id="auth-pass" autocomplete="current-password"/>
-    <button class="auth-btn" id="auth-btn" onclick="doLogin()">Sign in</button>
+    <div id="auth-login-panel">
+      <div class="auth-err" id="auth-err"></div>
+      <label class="f-label">Email</label>
+      <input class="f-input" type="email" id="auth-email" placeholder="you@brainboxcandy.com" autocomplete="email"/>
+      <label class="f-label">Password</label>
+      <input class="f-input" type="password" id="auth-pass" autocomplete="current-password"/>
+      <button class="auth-btn" id="auth-btn" onclick="doLogin()">Sign in</button>
+      <div class="auth-forgot"><a href="#" onclick="doForgotPassword();return false;">Forgot password?</a></div>
+      <div class="auth-msg" id="auth-msg"></div>
+    </div>
+    <div id="auth-reset-panel" hidden>
+      <div class="auth-msg" style="margin:0 0 10px">Choose a new password for <strong id="auth-reset-email"></strong>.</div>
+      <div class="auth-err" id="auth-reset-err"></div>
+      <label class="f-label">New password</label>
+      <input class="f-input" type="password" id="auth-new-pass" autocomplete="new-password"/>
+      <label class="f-label">Confirm new password</label>
+      <input class="f-input" type="password" id="auth-new-pass2" autocomplete="new-password"/>
+      <button class="auth-btn" id="auth-reset-btn" onclick="doSetNewPassword()">Save new password</button>
+    </div>
   </div>
 </div>
 
@@ -348,8 +364,8 @@ const SURL = 'https://ypfwecopdsielnouxwzv.supabase.co';
 const SKEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlwZndlY29wZHNpZWxub3V4d3p2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3NDMyNjgsImV4cCI6MjA5MTMxOTI2OH0.ll4Epk7es-knrgbG6j0e5xo59OEdMFwpxeWmMs9RfpU';
 const sb = supabase.createClient(SURL, SKEY);
 const PG = 250;
-const CRM_VERSION = '70'; // bump on each deploy; must match version.json
-const BUILD_DATE = '14 Sep 26'; // shown in the top-bar version label
+const CRM_VERSION = '71'; // bump on each deploy; must match version.json
+const BUILD_DATE = '29 Oct 26'; // shown in the top-bar version label
 // Columns derived from joins/arrays that can't be ordered server-side — rendered as non-clickable headers
 const NON_SORTABLE_COLS = new Set(['contact_name','contact_first','contact_last','contact_email','name_2','email_2','name_3','email_3','name_4','email_4']);
 // Display key -> real orderable customer column
@@ -436,9 +452,16 @@ const DEFAULT_VISIBLE = ['status','store_type','country_name','last_12m_spend','
 const DEFAULT_COLS = ALL_COLS.map(c=>({...c,visible:DEFAULT_VISIBLE.includes(c.key)}));
 
 // ═══ INIT ═══
+// Password reset links land here with type=recovery in the URL. In that case
+// show the "set new password" panel instead of opening the app.
+let AUTH_RECOVERY = /type=recovery/.test(location.hash) || /type=recovery/.test(location.search);
+sb.auth.onAuthStateChange((event, session)=>{
+  if(event==='PASSWORD_RECOVERY'){ AUTH_RECOVERY=true; showResetPanel(session); }
+});
 (async()=>{
   const{data:{session}}=await sb.auth.getSession();
-  if(session){S.user=session.user;await boot();}
+  if(AUTH_RECOVERY){ showResetPanel(session); }
+  else if(session){S.user=session.user;await boot();}
   document.getElementById('auth-email').addEventListener('keydown',e=>e.key==='Enter'&&document.getElementById('auth-pass').focus());
   document.getElementById('auth-pass').addEventListener('keydown',e=>e.key==='Enter'&&doLogin());
 })();
@@ -515,6 +538,48 @@ async function doLogin(){
   const{data,error}=await sb.auth.signInWithPassword({email,password:pass});
   btn.disabled=false;btn.textContent='Sign in';
   if(error){err.textContent=error.message;return;}
+  S.user=data.user;await boot();
+}
+async function doForgotPassword(){
+  const email=document.getElementById('auth-email').value.trim();
+  const err=document.getElementById('auth-err');
+  const msg=document.getElementById('auth-msg');
+  err.textContent='';msg.textContent='';
+  if(!email){err.textContent='Enter your email address above, then click Forgot password.';return;}
+  msg.textContent='Sending…';
+  const redirectTo=location.origin+location.pathname;
+  const{error}=await sb.auth.resetPasswordForEmail(email,{redirectTo});
+  if(error){msg.textContent='';err.textContent=error.message;return;}
+  msg.textContent='If '+email+' has an account, a password reset link is on its way. Check your inbox (and junk folder).';
+}
+function showResetPanel(session){
+  document.getElementById('app').hidden=true;
+  document.getElementById('auth-screen').hidden=false;
+  document.getElementById('auth-login-panel').hidden=true;
+  document.getElementById('auth-reset-panel').hidden=false;
+  const em=session&&session.user?session.user.email:'';
+  document.getElementById('auth-reset-email').textContent=em||'your account';
+  if(!session){
+    document.getElementById('auth-reset-err').textContent='This reset link has expired or was already used. Go back and request a new one.';
+  }
+  setTimeout(()=>document.getElementById('auth-new-pass').focus(),50);
+}
+async function doSetNewPassword(){
+  const p1=document.getElementById('auth-new-pass').value;
+  const p2=document.getElementById('auth-new-pass2').value;
+  const err=document.getElementById('auth-reset-err');
+  const btn=document.getElementById('auth-reset-btn');
+  err.textContent='';
+  if(p1.length<8){err.textContent='Use at least 8 characters.';return;}
+  if(p1!==p2){err.textContent='The two passwords do not match.';return;}
+  btn.disabled=true;btn.textContent='Saving…';
+  const{data,error}=await sb.auth.updateUser({password:p1});
+  btn.disabled=false;btn.textContent='Save new password';
+  if(error){err.textContent=error.message;return;}
+  AUTH_RECOVERY=false;
+  history.replaceState(null,'',location.pathname);
+  document.getElementById('auth-reset-panel').hidden=true;
+  document.getElementById('auth-login-panel').hidden=false;
   S.user=data.user;await boot();
 }
 async function doLogout(){
