@@ -364,7 +364,7 @@ const SURL = 'https://ypfwecopdsielnouxwzv.supabase.co';
 const SKEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlwZndlY29wZHNpZWxub3V4d3p2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3NDMyNjgsImV4cCI6MjA5MTMxOTI2OH0.ll4Epk7es-knrgbG6j0e5xo59OEdMFwpxeWmMs9RfpU';
 const sb = supabase.createClient(SURL, SKEY);
 const PG = 250;
-const CRM_VERSION = '72'; // bump on each deploy; must match version.json
+const CRM_VERSION = '73'; // bump on each deploy; must match version.json
 const BUILD_DATE = '29 Oct 26'; // shown in the top-bar version label
 // Columns derived from joins/arrays that can't be ordered server-side — rendered as non-clickable headers
 const NON_SORTABLE_COLS = new Set(['contact_name','contact_first','contact_last','contact_email','name_2','email_2','name_3','email_3','name_4','email_4']);
@@ -1799,6 +1799,7 @@ async function renderCustomerDetail(id){
           ${dr('Source',c.source?x(c.source):'—')}
           ${c.website?dr('Website',`<a href="${x(c.website)}" target="_blank" style="color:var(--blue);font-size:12px">${x(c.website)}</a>`):''}
           ${c.phone||c.mobile?dr('Phone',`${c.phone?x(c.phone):''}${c.phone&&c.mobile?' / ':''}${c.mobile?x(c.mobile):''}`):''}
+          ${dr('Email',(()=>{const ems=[...new Set(contacts.map(ct=>ct.email).filter(Boolean))];return ems.length?ems.map(e=>`<a href="mailto:${x(e)}" style="color:var(--blue);font-size:12px">${x(e)}</a>`).join('<br>'):'—';})())}
           ${dr('Country',x(c.country_name||'—'))}
           ${c.address_1?dr('Address',`<span style="font-size:12px;line-height:1.6">${[c.address_1,c.address_2,c.address_3,c.address_4,c.postcode].filter(Boolean).map(v=>x(v)).join('<br>')}</span>`):''}
           ${c.delivery_address_1?dr('Delivery',`<span style="font-size:12px;line-height:1.6">${[c.delivery_address_1,c.delivery_address_2,c.delivery_address_3,c.delivery_address_4,c.delivery_postcode].filter(Boolean).map(v=>x(v)).join('<br>')}</span>`):''}
@@ -3735,7 +3736,12 @@ async function saveEvent(custId){
 
 async function showAddEditCustomer(id){
   let c=null;
-  if(id){const{data}=await sb.from('customers').select('*').eq('id',id).single();c=data;}
+  let ect=null; // contact that holds the email shown in this form
+  if(id){
+    const[{data},{data:cts}]=await Promise.all([sb.from('customers').select('*').eq('id',id).single(),sb.from('contacts').select('*').eq('customer_id',id).order('is_primary',{ascending:false}).order('created_at')]);
+    c=data;ect=(cts||[]).find(t=>t.email)||(cts||[]).find(t=>t.is_primary)||null;
+  }
+  S._acEmailCt=ect;
   openModal(c?'Edit Customer':'Add Customer',`
     <div class="form-row">
       <div><label class="f-label">Company Name *</label><input class="f-input" id="ac-name" value="${x(c?.company_name||'')}"/></div>
@@ -3757,7 +3763,7 @@ async function showAddEditCustomer(id){
     </div>
     <div class="form-row" style="margin-top:12px">
       <div><label class="f-label">Owner</label><select class="f-input" id="ac-owner"><option value="">— Unassigned —</option>${teamNames().map(n=>`<option value="${x(n)}" ${c?.owner===n?'selected':''}>${x(n)}</option>`).join('')}</select></div>
-      <div>${c?'':'<label class="f-label">Email</label><input class="f-input" id="ac-email" type="email" placeholder="name@shop.com"/>'}</div>
+      <div><label class="f-label">Email</label><input class="f-input" id="ac-email" type="email" placeholder="name@shop.com" value="${x(ect?.email||'')}"/></div>
     </div>
     <div class="form-row" style="margin-top:12px">
       <div><label class="f-label">Phone</label><input class="f-input" id="ac-phone" value="${x(c?.phone||'')}"/></div>
@@ -3789,7 +3795,7 @@ async function saveCustomer(id){
   const gv=id=>document.getElementById(id)?.value?.trim()||null;
   const payload={company_name:name,kf_code:gv('ac-kf'),status:document.getElementById('ac-status').value,country_name:gv('ac-country'),notes:gv('ac-notes'),pipeline_stage:document.getElementById('ac-pipe').value||null,owner:document.getElementById('ac-owner')?.value||null,phone:gv('ac-phone'),mobile:gv('ac-mobile'),source:gv('ac-source'),store_type:gv('ac-store-type'),address_1:gv('ac-addr1'),address_2:gv('ac-addr2'),postcode:gv('ac-postcode'),website:gv('ac-website')};
   const spend=document.getElementById('ac-spend')?.value;if(spend)payload.all_time_spend=parseFloat(spend);
-  const email=id?null:(gv('ac-email')||'').toLowerCase()||null;
+  const email=(gv('ac-email')||'').toLowerCase()||null;
   if(email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){err.textContent='That email address does not look right.';return;}
   if(payload.pipeline_stage){
     const dups=await findPipelineDupes(name,id||null,payload.owner);
@@ -3802,6 +3808,16 @@ async function saveCustomer(id){
   if(!id&&email&&saved?.id){
     const r=await sb.from('contacts').insert({customer_id:saved.id,email,is_primary:true});
     emailErr=r.error;
+  }
+  if(id){
+    const ect=S._acEmailCt,old=(ect?.email||'').toLowerCase()||null;
+    if(email!==old){
+      let r={error:null};
+      if(email&&ect)r=await sb.from('contacts').update({email}).eq('id',ect.id);
+      else if(email)r=await sb.from('contacts').insert({customer_id:id,email,is_primary:true});
+      else if(ect)r=(ect.first_name||ect.last_name||ect.phone||ect.role)?await sb.from('contacts').update({email:null}).eq('id',ect.id):await sb.from('contacts').delete().eq('id',ect.id);
+      if(r.error){err.textContent='Customer saved, but the email was not: '+r.error.message;return;}
+    }
   }
   closeModal();refreshCounts();
   if(id)go('customer-detail',{id});
