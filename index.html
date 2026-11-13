@@ -364,7 +364,7 @@ const SURL = 'https://ypfwecopdsielnouxwzv.supabase.co';
 const SKEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlwZndlY29wZHNpZWxub3V4d3p2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3NDMyNjgsImV4cCI6MjA5MTMxOTI2OH0.ll4Epk7es-knrgbG6j0e5xo59OEdMFwpxeWmMs9RfpU';
 const sb = supabase.createClient(SURL, SKEY);
 const PG = 250;
-const CRM_VERSION = '71'; // bump on each deploy; must match version.json
+const CRM_VERSION = '72'; // bump on each deploy; must match version.json
 const BUILD_DATE = '29 Oct 26'; // shown in the top-bar version label
 // Columns derived from joins/arrays that can't be ordered server-side — rendered as non-clickable headers
 const NON_SORTABLE_COLS = new Set(['contact_name','contact_first','contact_last','contact_email','name_2','email_2','name_3','email_3','name_4','email_4']);
@@ -3757,7 +3757,7 @@ async function showAddEditCustomer(id){
     </div>
     <div class="form-row" style="margin-top:12px">
       <div><label class="f-label">Owner</label><select class="f-input" id="ac-owner"><option value="">— Unassigned —</option>${teamNames().map(n=>`<option value="${x(n)}" ${c?.owner===n?'selected':''}>${x(n)}</option>`).join('')}</select></div>
-      <div></div>
+      <div>${c?'':'<label class="f-label">Email</label><input class="f-input" id="ac-email" type="email" placeholder="name@shop.com"/>'}</div>
     </div>
     <div class="form-row" style="margin-top:12px">
       <div><label class="f-label">Phone</label><input class="f-input" id="ac-phone" value="${x(c?.phone||'')}"/></div>
@@ -3789,14 +3789,24 @@ async function saveCustomer(id){
   const gv=id=>document.getElementById(id)?.value?.trim()||null;
   const payload={company_name:name,kf_code:gv('ac-kf'),status:document.getElementById('ac-status').value,country_name:gv('ac-country'),notes:gv('ac-notes'),pipeline_stage:document.getElementById('ac-pipe').value||null,owner:document.getElementById('ac-owner')?.value||null,phone:gv('ac-phone'),mobile:gv('ac-mobile'),source:gv('ac-source'),store_type:gv('ac-store-type'),address_1:gv('ac-addr1'),address_2:gv('ac-addr2'),postcode:gv('ac-postcode'),website:gv('ac-website')};
   const spend=document.getElementById('ac-spend')?.value;if(spend)payload.all_time_spend=parseFloat(spend);
+  const email=id?null:(gv('ac-email')||'').toLowerCase()||null;
+  if(email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){err.textContent='That email address does not look right.';return;}
   if(payload.pipeline_stage){
     const dups=await findPipelineDupes(name,id||null,payload.owner);
     if(dups.length && !dupConfirm(dups))return;
   }
-  const{error}=id?await sb.from('customers').update(payload).eq('id',id):await sb.from('customers').insert(payload);
+  const{data:saved,error}=id?await sb.from('customers').update(payload).eq('id',id):await sb.from('customers').insert(payload).select('id').single();
   if(error){err.textContent=error.message;return;}
+  // New customer with an email: store it as the primary contact (emails live in contacts)
+  let emailErr=null;
+  if(!id&&email&&saved?.id){
+    const r=await sb.from('contacts').insert({customer_id:saved.id,email,is_primary:true});
+    emailErr=r.error;
+  }
   closeModal();refreshCounts();
-  if(id)go('customer-detail',{id});else go('customers');
+  if(id)go('customer-detail',{id});
+  else if(emailErr){go('customer-detail',{id:saved.id});console.error('Email not saved',emailErr);setTimeout(()=>openModal('Email not saved',`<div style="font-size:13px">The customer was created but the email could not be saved: ${x(emailErr.message)}. Add it under Contacts.</div>`,`<button class="btn btn-primary" onclick="closeModal()">OK</button>`),300);}
+  else go('customers');
 }
 
 function showLinkActivity(custId){
