@@ -79,7 +79,7 @@ textarea.f-input{resize:vertical;min-height:72px}
 /* MAIN */
 .main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
 .topbar{height:52px;background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 20px;gap:8px;flex-shrink:0}
-.update-banner{background:var(--accent);color:#fff;padding:9px 16px;text-align:center;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;flex-shrink:0;transition:opacity .15s}
+.update-banner{background:var(--accent);color:#fff;padding:26px 16px;text-align:center;font-size:20px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:12px;transition:opacity .15s;position:fixed;left:0;right:0;top:50%;transform:translateY(-50%);z-index:99999;box-shadow:0 10px 40px rgba(0,0,0,.35)}
 .update-banner:hover{opacity:.92}
 .update-banner u{text-decoration-thickness:1.5px;text-underline-offset:2px}
 .col-funnel{display:inline-flex;align-items:center;margin-left:5px;cursor:pointer;color:var(--text3);vertical-align:middle;opacity:.55;transition:opacity .1s,color .1s}
@@ -335,7 +335,7 @@ tbody tr{transition:background .1s}tbody tr:hover{background:var(--surface2);cur
     </div>
   </nav>
   <div class="main">
-    <div id="updateBanner" class="update-banner" style="display:none;background:#c93a1a;color:#ffffff" onclick="applyUpdate()"><span style="font-size:15px;color:#ffffff">⟳</span><span style="color:#ffffff;font-weight:600">A new version is available — <u style="color:#ffffff">click here to refresh</u></span></div>
+    <div id="updateBanner" class="update-banner" style="display:none;background:#c93a1a;color:#ffffff" onclick="applyUpdate()"><span style="font-size:24px;color:#ffffff">⟳</span><span style="color:#ffffff;font-weight:600">A new version is available — <u style="color:#ffffff">click here to refresh</u></span></div>
     <div class="topbar">
       <div class="topbar-title" id="tb-title">Dashboard</div>
       <div class="topbar-version" id="topbar-version" title="CRM build version"></div>
@@ -364,7 +364,7 @@ const SURL = 'https://ypfwecopdsielnouxwzv.supabase.co';
 const SKEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlwZndlY29wZHNpZWxub3V4d3p2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3NDMyNjgsImV4cCI6MjA5MTMxOTI2OH0.ll4Epk7es-knrgbG6j0e5xo59OEdMFwpxeWmMs9RfpU';
 const sb = supabase.createClient(SURL, SKEY);
 const PG = 250;
-const CRM_VERSION = '74'; // bump on each deploy; must match version.json
+const CRM_VERSION = '75'; // bump on each deploy; must match version.json
 const BUILD_DATE = '29 Oct 26'; // shown in the top-bar version label
 // Columns derived from joins/arrays that can't be ordered server-side — rendered as non-clickable headers
 const NON_SORTABLE_COLS = new Set(['contact_name','contact_first','contact_last','contact_email','name_2','email_2','name_3','email_3','name_4','email_4']);
